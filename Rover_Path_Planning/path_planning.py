@@ -55,7 +55,8 @@ class ImageToGPSConverter:
 
         droneAltitude *= 0.3048  # Convert from feet to meters
 
-        fovRad = ImageToGPSConverter.__degreesToRadians(droneFOV)  # Convert to radians
+        fovRad = ImageToGPSConverter.__degreesToRadians(
+            droneFOV)  # Convert to radians
         # Multiply by altitude to get distance across the image's diagonal
         fovAtan = math.tan(fovRad)
 
@@ -109,7 +110,8 @@ class ImageToGPSConverter:
             abs(distance), options["units"], "meters")
         if wasNegativeDistance:
             distanceInMeters = -abs(distanceInMeters)
-        destination = ImageToGPSConverter.__calculateRhumbDestination(origin, distanceInMeters, bearing)
+        destination = ImageToGPSConverter.__calculateRhumbDestination(
+            origin, distanceInMeters, bearing)
 
         # Compensate the crossing of the 180th meridian (https://macwright.org/2016/09/26/the-180th-meridian.html)
         # Solution from https://github.com/mapbox/mapbox-gl-js/issues/3250#issuecomment-294887678
@@ -240,7 +242,7 @@ class ImageToGPSConverter:
     def __degreesToRadians(degrees):
         radians = math.fmod(degrees, 360.0)
         return (radians * math.pi) / 180
-    
+
     """
     Earth Radius used with the Harvesine formula and approximates using a spherical (non-ellipsoid) Earth.
     
