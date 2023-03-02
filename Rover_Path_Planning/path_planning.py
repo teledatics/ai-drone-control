@@ -70,7 +70,7 @@ class ImageToGPSConverter:
         # this means that (0, 0) is where our drone is and makes our math easier
         normalized = [pixel_y - imageHeight/2, pixel_x - imageWidth/2]
 
-        # Calculate the distance and bearing of the solar panel relative to the center point
+        # Calculate the distance and bearing of the pixel relative to the center point
         distanceFromCenterInPixels = math.sqrt(
             (imageWidth/2 - pixel_x)**2 + (imageHeight/2 - pixel_y)**2)
         diagonalDistanceInPixels = math.sqrt(imageWidth**2 + imageHeight**2)
