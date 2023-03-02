@@ -33,3 +33,6 @@
 
 # Jupyter Notebook checkpoint files
 *-checkpoint.ipynb
+
+# Python artifacts
+*.pyc
