@@ -13,7 +13,7 @@ AI drone &amp; rover control system code repository. It includes the following m
             - **Description:** Converts drone image pixel coordinates to GPS coordinates based on drone's current position and orientation in 3-D space on the globe.
             - **Status:** Complete
         2. Rover Path Mapper
-            - **Description:** Processes image data, using above modules and CV techniques, to isolate valid rover paths and identified obstacles between paths.
+            - **Description:** Processes image data, using above modules and CV techniques, to identify valid rover paths and obstacles between paths.
             - **Status:** Pending
         3. Path Planner
             - **Description:** Algorithms for calculating optimal rover patrol routes based on outputs from above modules. Implements multi-traveling salesman and A-star solutions.
