@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""@brief Defines ImageToGPSConverter class"""
+"""@brief Defines rover path planning module"""
 
 ##
 # @file path_planning.py
@@ -8,25 +8,202 @@
 #
 # @section description_path_planning Description
 # Defines classes which encapsulate methodology of rover path planning from drone aerial images.
+# - CFMTSP
 # - ImageToGPSConverter
 #
 # @section libraries_path_planning Libraries/Modules
 # - math standard library (https://docs.python.org/3/library/math.html)
 #   - Access to essential trigonometric functions
+# - Numpy (https://numpy.org/)
+#   - Access to numerical computing tools for matrix calculations
 #
 # @section todo_path_planning TODO
-# - None.
+# - Test modules.
 #
 # @section author_path_planning Author(s)
 # - Created by Justin Carrel on 02/26/2023
 #
 # @section references_path_planning References
+# - https://www.researchgate.net/publication/342492385_Novel_Graph_Model_for_Solving_Collision-Free_Multiple-Vehicle_Traveling_Salesman_Problem_Using_Ant_Colony_Optimization
 # - https://blog.roboflow.com/georeferencing-drone-videos/
 #
 # Copyright (c) 2023 Teledatics. All rights reserved.
 
 import math
+import numpy as np
 
+class CFMTSP:
+    """
+    Collision-Free Multiple Traveling Salesman Problem class.
+
+    Defines class which implements multiple traveling salesman solution for rovers.
+    """
+    
+    """
+    Constructor
+    
+    @name __init__
+    """
+    def __init__(self):
+        self.adjacency_matrix = None
+        self.edge_matrix = None
+        self.edge_end = {}
+        self.edge_start = {}
+        self.trajectory_adjacency_matrix = None
+        self.trajectory_adjacency_matrix_row_dict = {}
+        self.augmented_edge_adjacency_matrix = None
+    
+    """
+    Initialize adjacency square matrix with input number of nodes
+    
+    @name initAdjacencyMatrix
+    @param {number} numNodes number of nodes in adjacency matrix
+    """
+    @classmethod
+    def initAdjacencyMatrix(self, numNodes):
+        self.adjacency_matrix = np.zeros((numNodes, numNodes))
+        # New adjacency matrix nullifies other matrices
+        self.edge_matrix = None
+        self.edge_end = {}
+        self.edge_start = {}
+        self.trajectory_adjacency_matrix = None
+        self.trajectory_adjacency_matrix_row_dict = {}
+        self.augmented_edge_adjacency_matrix = None
+    
+    """
+    Add directed edge between nodes
+    
+    @name addDirectedEdge
+    @param {number} node1 start node in adacency matrix
+    @param {number} node2 end node in adacency matrix
+    """
+    @classmethod
+    def addDirectedEdge(self, node1, node2):
+        if (self.adjacency_matrix == None):
+            raise IndexError("Adjacency matrix is empty!")
+        if (self.adjacency_matrix.shape[0] < node1):
+            raise ValueError("node1 value out of bounds!")
+        if (self.adjacency_matrix.shape[1] < node2):
+            raise ValueError("node2 value out of bounds!")
+        if (node1 == node2):
+            raise ValueError("node1 and node2 value must not match!")
+        
+        self.adjacency_matrix[node1][node2] = 1
+    
+    """
+    Add undirected edge between nodes
+    
+    @name addUndirectedEdge
+    @param {number} node1 start node in adacency matrix
+    @param {number} node2 end node in adacency matrix
+    """
+    @classmethod
+    def addUndirectedEdge(self, node1, node2):
+        # An undirected edge is just a bi-directional edge between nodes
+        self.addDirectedEdge(node1, node2)
+        self.addDirectedEdge(node2, node1)
+    
+    """
+    Create edge matrix eB from adjacency matrix, via Algorithm 1 of CFMTSP paper
+    
+    @name createEdgeMatrix
+    @returns {number} number of edges
+    """
+    @classmethod
+    def createEdgeMatrix(self):
+        if (self.adjacency_matrix == None):
+            raise IndexError("Adjacency matrix is empty!")
+        
+        self.edge_matrix = self.adjacency_matrix.copy()
+        q = 0
+        for i in range(self.edge_matrix.shape[0]): # rows
+            for j in range(self.edge_matrix.shape[1]): # columns
+                if ((i != j) and (self.edge_matrix[i][j] == 1)):
+                    q += 1
+                    self.edge_matrix[i][j] = q
+                    self.edge_end[q] = j + 1
+                    self.edge_start[q] = i + 1
+                    
+        return q
+    
+    """
+    Create trajectory adjacency matrix 𝜓B from edge matrix eB, via equation (7) of CFMTSP paper
+    
+    @name createTrajectoryAdjacencyMatrix
+    @param {number} numEdges number of edges in edge matrix
+    @param {number} numSpeeds number of discrete rover velocity settings
+    """
+    @classmethod
+    def createTrajectoryAdjacencyMatrix(self, numEdges, numSpeeds):
+        self.trajectory_adjacency_matrix = np.zeros((numEdges, numSpeeds))
+        for i in range(self.trajectory_adjacency_matrix.shape[0]): # rows
+            for j in range(self.trajectory_adjacency_matrix.shape[1]): # columns
+                𝜓p = i*numSpeeds + (j + 1)
+                self.trajectory_adjacency_matrix[i][j] = 𝜓p
+                self.trajectory_adjacency_matrix_row_dict[𝜓p] = i + 1
+    
+    """
+    Create augmented trajectory adjacency matrix 𝜉B from trajectory adjacency matrix 𝜓B and edge matrix eB, via Algorithm 2 of CFMTSP paper
+    
+    @name createAugmentedEdgeAdjacencyMatrix
+    @returns {number} last index
+    """
+    @classmethod
+    def createAugmentedEdgeAdjacencyMatrix(self):
+        if (self.trajectory_adjacency_matrix == None):
+            raise IndexError("Trajectory adjacency matrix is empty!")
+        
+        # |𝜓B|
+        num_elements = self.trajectory_adjacency_matrix.shape[0] * self.trajectory_adjacency_matrix.shape[1]
+        
+        # Initialize 𝜉B with zeros
+        self.augmented_edge_adjacency_matrix = np.zeros((num_elements, num_elements))
+        
+        # Algorithm body
+        𝜉h = h = 0
+        for i in range(num_elements):
+            for j in range(num_elements):
+                c1 = self.trajectory_adjacency_matrix_row_dict[i + 1]
+                c2 = self.trajectory_adjacency_matrix_row_dict[j + 1]
+                if c1 != c2:
+                    if self.edge_end[c1] == self.edge_start[c2]:
+                        h += 1
+                        # 𝜉b
+                        self.augmented_edge_adjacency_matrix[i][j] = h
+                        𝜉h = h
+        
+        return 𝜉h
+    
+    """
+    Calculate uniform acceleration along augmented edge
+    
+    @name __getAcceleration
+    @param {number} si initial speed at node i
+    @param {number} sj final speed at node j
+    @param {number} Lij edge length between nodes i and j
+    @returns {number} uniform acceleration from node i to node j
+    """
+    @classmethod
+    def __getAcceleration(self, si, sj, Lij):
+        return (sj**2 - si**2) / (2*Lij)
+    
+    """
+    Calculate travel time along augmented edge
+    
+    @name __getTravelTime
+    @param {number} si initial speed at node i
+    @param {number} sj final speed at node j
+    @param {number} Lij edge length between nodes i and j
+    @returns {number} travel time from node i to node j
+    """
+    @classmethod
+    def __getTravelTime(self, si, sj, Lij):
+        a_ij = self.__getAcceleration(si, sj, Lij)
+        
+        if (a_ij == 0):
+            return Lij/si
+        else:
+            return (-si + math.sqrt(si**2 + 2*a_ij*Lij)) / a_ij
 
 class ImageToGPSConverter:
     """
