@@ -65,9 +65,10 @@ class CFMTSP:
     @param {number} node1 start node in adjacency matrix
     @param {number} node2 end node in adjacency matrix
     @param {ndarray} [mutable] adjacency matrix
+    @param {number} weight node1 -> node2 edge weight
     """
     @classmethod
-    def addDirectedEdge(self, node1, node2, adjMatrix):
+    def addDirectedEdge(self, node1, node2, adjMatrix, weight):
         if (adjMatrix == None):
             raise IndexError("Adjacency matrix is empty!")
         if (adjMatrix.shape[0] < node1):
@@ -76,9 +77,11 @@ class CFMTSP:
             raise ValueError("node2 value out of bounds!")
         if (node1 == node2):
             raise ValueError("node1 and node2 value must not match!")
+        if (weight == 0):
+            raise ValueError("edge weight must be non-zero value!")
         
         # Mutable object
-        adjMatrix[node1][node2] = 1
+        adjMatrix[node1][node2] = weight
     
     """
     Add undirected edge between nodes
@@ -87,12 +90,13 @@ class CFMTSP:
     @param {number} node1 start node in adjacency matrix
     @param {number} node2 end node in adjacency matrix
     @param {ndarray} [mutable] adjacency matrix
+    @param {number} weight node1 <-> node2 edge weight
     """
     @classmethod
-    def addUndirectedEdge(self, node1, node2, adjMatrix):
+    def addUndirectedEdge(self, node1, node2, adjMatrix, weight):
         # An undirected edge is just a bi-directional edge between nodes
-        self.addDirectedEdge(node1, node2, adjMatrix)
-        self.addDirectedEdge(node2, node1, adjMatrix)
+        self.addDirectedEdge(node1, node2, adjMatrix, weight)
+        self.addDirectedEdge(node2, node1, adjMatrix, weight)
     
     """
     Create edge matrix eB from adjacency matrix, via Algorithm 1 of CFMTSP paper
@@ -116,7 +120,7 @@ class CFMTSP:
         
         for i in range(eB.shape[0]): # rows
             for j in range(eB.shape[1]): # columns
-                if (i != j) and (eB[i][j] == 1):
+                if (i != j) and (eB[i][j] != 0):
                     q += 1
                     eB[i][j] = q
                     edgeEndDict[q] = j + 1
@@ -155,7 +159,9 @@ class CFMTSP:
     @param {dictionary} edgeEndDict end node look-up table
     @param {dictionary} edgeStartDict start node look-up table
     @returns {ndarray} augmented trajectory matrix
-             {number} last index
+             {number} index count
+             {dictionary} 𝜉h row look-up table
+             {dictionary} 𝜉h column look-up table
     """
     @classmethod
     def createAugmentedEdgeAdjacencyMatrix(self, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
@@ -169,6 +175,8 @@ class CFMTSP:
         𝜉B = np.zeros((num_elements, num_elements))
         
         # Algorithm body
+        𝜉h_rowDict = {}
+        𝜉h_columnDict = {}
         𝜉h = h = 0
         for i in range(num_elements): # For i=1,...,|𝜓B|
             for j in range(num_elements): # For j=1,...,|𝜓B|
@@ -180,8 +188,75 @@ class CFMTSP:
                         # Update 𝜉b_ij
                         𝜉B[i][j] = h
                         𝜉h = h
+                        𝜉h_rowDict[𝜉h] = i + 1
+                        𝜉h_columnDict[𝜉h] = j + 1
         
-        return 𝜉B, 𝜉h
+        return 𝜉B, 𝜉h, 𝜉h_rowDict, 𝜉h_columnDict
+    
+    """
+    Initialize pheromone adjacency matrix edges with default value
+    
+    @name createPheromoneAdjacencyMatrix
+    @param {ndarray} augmented edge adjacency matrix
+    @returns {ndarray} pheromone adjacency matrix
+    """
+    @classmethod
+    def createPheromoneAdjacencyMatrix(self, 𝜉B):
+        if (𝜉B == None):
+            raise IndexError("Augmented edge adjacency matrix is empty!")
+        
+        τ = 𝜉B.copy() # make deep copy
+        τ[τ != 0] = 0.5 # initialize non-empty edges
+        
+        return τ
+    
+    """
+    Adds phermone along augmented route of pheromone matrix
+    
+    @name __calculatePheromoneTrailsAmount
+    @param {array} L𝜉sel list of augmented edges traversed by ant
+    @param {ndarray} τ pheromone matrix
+    @param {array} speeds list of available speed selections for vehicle
+    @param {ndarray} adjMatrix adjacency matrix with edge weights
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    """
+    @classmethod
+    def __calculatePheromoneTrailsAmount(self, L𝜉sel, τ, speeds, adjMatrix, 𝜓B, 𝜉h_rowDict,
+                                         𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+        totalPathTime = self.__getPathTravelTime(speeds, adjMatrix, 𝜓B, L𝜉sel, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict,
+                                                 edgeEndDict, edgeStartDict)
+        for 𝜉h in L𝜉sel:
+            i = 𝜉h_rowDict[𝜉h]
+            j = 𝜉h_columnDict[𝜉h]
+            
+            # Mutable object
+            τ[i][j] += 1/totalPathTime # Single ant of single species so we don't need to worry
+                                       # about including delta tau of other ants in 1 iteration
+                                       # TODO: Verify this is true
+    
+    """
+    Reduces phermone along augmented route of pheromone matrix
+    
+    @name __reducePheromoneTrailAmount
+    @param {array} L𝜉sel list of augmented edges traversed by ant
+    @param {ndarray} τ pheromone matrix
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {number} evaporationRate evaporation rate of pheromone along agumented edge
+    """
+    @classmethod
+    def __reducePheromoneTrailAmount(self, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate=0.0):
+        for 𝜉h in L𝜉sel:
+            i = 𝜉h_rowDict[𝜉h]
+            j = 𝜉h_columnDict[𝜉h]
+            
+            # Mutable object
+            τ[i][j] *= (1 - evaporationRate)
     
     """
     Calculate uniform acceleration along augmented edge
@@ -197,7 +272,7 @@ class CFMTSP:
         return (sj**2 - si**2) / (2*Lij)
     
     """
-    Calculate travel time along augmented edge
+    Calculate travel time along graph edge
     
     @name __getTravelTime
     @param {number} si initial speed at node i
@@ -213,6 +288,57 @@ class CFMTSP:
             return Lij/si
         else:
             return (-si + math.sqrt(si**2 + 2*a_ij*Lij)) / a_ij
+    
+    """
+    Calculate travel time along augmented edge
+    
+    @name __getEdgeTravelTime
+    @param {array} speeds list of available speed selections for vehicle
+    @param {ndarray} adjMatrix adjacency matrix with edge weights
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {number} 𝜉h augmented edge index
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @returns {number} travel time for augmented edge indexed by 𝜉h
+    """
+    @classmethod
+    def __getEdgeTravelTime(self, speeds, adjMatrix, 𝜓B, 𝜉h, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+        i = 𝜉h_rowDict[𝜉h]
+        j = 𝜉h_columnDict[𝜉h]
+        c1_edge = 𝜓B_rowDict[i] # Edge 1
+        c2_edge = 𝜓B_rowDict[j] # Edge 2
+        si = speeds[(c1_edge - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
+        sj = speeds[(c2_edge - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
+        Lij = adjMatrix[edgeStartDict[c1_edge]][edgeEndDict[c1_edge]] # Edge 1 weight/distance
+        
+        return self.__getTravelTime(si, sj, Lij)
+    
+    """
+    Calculate travel time along augmented path
+    
+    @name __getPathTravelTime
+    @param {array} speeds list of available speed selections for vehicle
+    @param {ndarray} adjMatrix adjacency matrix with edge weights
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {array} L𝜉sel array of augmented edge indexes
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @returns {number} travel time for augmented edge indexed by 𝜉h
+    """
+    @classmethod
+    def __getPathTravelTime(self, speeds, adjMatrix, 𝜓B, L𝜉sel, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+        totalDistance = 0
+        
+        for 𝜉h in L𝜉sel:
+            totalDistance += self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, 𝜉h, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+        
+        return totalDistance
 
 
 class ImageToGPSConverter:
