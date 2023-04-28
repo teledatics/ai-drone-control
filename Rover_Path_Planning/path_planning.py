@@ -235,9 +235,9 @@ class CFMTSP:
             j = 𝜉h_columnDict[𝜉h]
             
             # Mutable object
-            τ[i][j] += 1/totalPathTime # Single ant of single species so we don't need to worry
-                                       # about including delta tau of other ants in 1 iteration
-                                       # TODO: Verify this is true
+            τ[i - 1][j - 1] += 1/totalPathTime # Single ant of single species so we don't need to worry
+                                               # about including delta tau of other ants in 1 iteration
+                                               # TODO: Verify this is true
     
     """
     Reduces phermone along augmented route of pheromone matrix
@@ -256,7 +256,7 @@ class CFMTSP:
             j = 𝜉h_columnDict[𝜉h]
             
             # Mutable object
-            τ[i][j] *= (1 - evaporationRate)
+            τ[i - 1][j - 1] *= (1 - evaporationRate)
     
     """
     Calculate uniform acceleration along augmented edge
