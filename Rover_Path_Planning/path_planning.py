@@ -1,10 +1,10 @@
 #!/usr/bin/python3
-"""@brief Defines rover path planning module"""
+"""@brief Defines rover path planning module based on drone image feed"""
 
 ##
 # @file path_planning.py
 #
-# @brief Defines rover path planning module
+# @brief Defines rover path planning module based on drone image feed
 #
 # @section description_path_planning Description
 # Defines classes which encapsulate methodology of rover path planning from drone aerial images.
@@ -19,6 +19,8 @@
 #
 # @section todo_path_planning TODO
 # - Test modules.
+# - Modify CFMTSP solution to account for speed limits needed to accomodate sharp turns; until then, keep max speed low
+# - Add matrix to cache augmented graph edge weights for CFMTSP solution
 #
 # @section author_path_planning Author(s)
 # - Created by Justin Carrel on 02/26/2023
@@ -59,6 +61,59 @@ class CFMTSP:
         return np.zeros((numNodes, numNodes))
     
     """
+    Add undirected edge between nodes
+    
+    @name addUndirectedEdge
+    @param {number} node1 start node in adjacency matrix
+    @param {number} node2 end node in adjacency matrix
+    @param {ndarray} [mutable] adjacency matrix
+    @param {number} weight node1 <-> node2 edge weight
+    """
+    @classmethod
+    def addUndirectedEdge(self, node1, node2, adjMatrix, weight):
+        # An undirected edge is just a bi-directional edge between nodes
+        self.__addDirectedEdge(node1, node2, adjMatrix, weight)
+        self.__addDirectedEdge(node2, node1, adjMatrix, weight)
+    
+    @classmethod
+    def calculateRoverPaths(self, adjMatrix, vi, speeds, Nm, β=1, gamma=1, evaporationRate=0.01, top=5.0):
+        if (adjMatrix == None):
+            raise IndexError("Adjacency matrix is empty!")
+        if adjMatrix.shape[0] != adjMatrix.shape[1]:
+            raise IndexError("Adjacency matrix must be a square matrix!")
+        
+        # Initialize variables
+        si = [0.0] * len(vi) # Assume all rovers are stationary (i.e. initial speeds are 0 m/s)
+        Nu = len(vi)
+        
+        eB, edgeEndDict, edgeStartDict, numEdges = self.__createEdgeMatrix(adjMatrix)
+        𝜓B, 𝜓B_rowDict = self.__createTrajectoryAdjacencyMatrix(numEdges, len(speeds))
+        𝜉B, 𝜉h_count, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+        τk = []
+        Pr𝜉hk = []
+        𝜓kbest = [[] for _ in range(Nu)]
+        Lkunv = None
+        
+        # Initialize pheromone and probability matrices for each rover/ant "species"
+        for k in range(Nu):
+            τk.append(self.__createPheromoneAdjacencyMatrix(𝜉B))
+            Pr𝜉hk.append(self.__createPr𝜉hMatrix(𝜉B, τk[k], speeds, adjMatrix, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
+                                                   𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma))
+        
+        for r in range(Nm):
+            vkcurr = vi
+            Lkunv = [[False] * adjMatrix.shape[0] for _ in range(Nu)]
+            Lek = [[] for _ in range(Nu)]
+            L𝜓k = [[] for _ in range(Nu)]
+            L𝜉k = [[] for _ in range(Nu)]
+            Lk𝜉sel = [[] for _ in range(Nu)]
+            Livis = [[] for _ in range(Nu)]
+            
+            #TODO: Finish this part
+        
+        return
+    
+    """
     Add directed edge between nodes
     
     @name addDirectedEdge
@@ -68,7 +123,7 @@ class CFMTSP:
     @param {number} weight node1 -> node2 edge weight
     """
     @classmethod
-    def addDirectedEdge(self, node1, node2, adjMatrix, weight):
+    def __addDirectedEdge(self, node1, node2, adjMatrix, weight):
         if (adjMatrix == None):
             raise IndexError("Adjacency matrix is empty!")
         if (adjMatrix.shape[0] < node1):
@@ -84,24 +139,9 @@ class CFMTSP:
         adjMatrix[node1][node2] = weight
     
     """
-    Add undirected edge between nodes
-    
-    @name addUndirectedEdge
-    @param {number} node1 start node in adjacency matrix
-    @param {number} node2 end node in adjacency matrix
-    @param {ndarray} [mutable] adjacency matrix
-    @param {number} weight node1 <-> node2 edge weight
-    """
-    @classmethod
-    def addUndirectedEdge(self, node1, node2, adjMatrix, weight):
-        # An undirected edge is just a bi-directional edge between nodes
-        self.addDirectedEdge(node1, node2, adjMatrix, weight)
-        self.addDirectedEdge(node2, node1, adjMatrix, weight)
-    
-    """
     Create edge matrix eB from adjacency matrix, via Algorithm 1 of CFMTSP paper
     
-    @name createEdgeMatrix
+    @name __createEdgeMatrix
     @param {ndarray} adjacency matrix
     @returns {ndarray} edge matrix
              {dictionary} edge end node look-up table
@@ -109,7 +149,7 @@ class CFMTSP:
              {number} number of edges
     """
     @classmethod
-    def createEdgeMatrix(self, adjMatrix):
+    def __createEdgeMatrix(self, adjMatrix):
         if (adjMatrix == None):
             raise IndexError("Adjacency matrix is empty!")
         
@@ -131,14 +171,14 @@ class CFMTSP:
     """
     Create trajectory adjacency matrix 𝜓B from edge matrix eB, via equation (7) of CFMTSP paper
     
-    @name createTrajectoryAdjacencyMatrix
+    @name __createTrajectoryAdjacencyMatrix
     @param {number} numEdges number of edges in edge matrix
     @param {number} numSpeeds number of discrete rover velocity settings
     @returns {ndarray} trajectory adjacency matrix
              {dictionary} row index look-up table
     """
     @classmethod
-    def createTrajectoryAdjacencyMatrix(self, numEdges, numSpeeds):
+    def __createTrajectoryAdjacencyMatrix(self, numEdges, numSpeeds):
         𝜓B = np.zeros((numEdges, numSpeeds))
         𝜓B_rowDict = {}
         
@@ -153,7 +193,7 @@ class CFMTSP:
     """
     Create augmented trajectory adjacency matrix 𝜉B from trajectory adjacency matrix 𝜓B and edge matrix eB, via Algorithm 2 of CFMTSP paper
     
-    @name createAugmentedEdgeAdjacencyMatrix
+    @name __createAugmentedEdgeAdjacencyMatrix
     @param {ndarray} 𝜓B trajectory adjacency matrix
     @param {dictionary} 𝜓B_rowDict row index look-up table
     @param {dictionary} edgeEndDict end node look-up table
@@ -162,9 +202,10 @@ class CFMTSP:
              {number} index count
              {dictionary} 𝜉h row look-up table
              {dictionary} 𝜉h column look-up table
+             {dictionary} sub-trajectory (𝜓) neighbor look-up table
     """
     @classmethod
-    def createAugmentedEdgeAdjacencyMatrix(self, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+    def __createAugmentedEdgeAdjacencyMatrix(self, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
         if (𝜓B == None):
             raise IndexError("Trajectory adjacency matrix is empty!")
         
@@ -177,8 +218,10 @@ class CFMTSP:
         # Algorithm body
         𝜉h_rowDict = {}
         𝜉h_columnDict = {}
+        𝜓i_neighbors = {}
         𝜉h = h = 0
         for i in range(num_elements): # For i=1,...,|𝜓B|
+            neighbors = []
             for j in range(num_elements): # For j=1,...,|𝜓B|
                 c1 = 𝜓B_rowDict[i + 1]
                 c2 = 𝜓B_rowDict[j + 1]
@@ -190,18 +233,20 @@ class CFMTSP:
                         𝜉h = h
                         𝜉h_rowDict[𝜉h] = i + 1
                         𝜉h_columnDict[𝜉h] = j + 1
+                        neighbors.append(j + 1) # Add 𝜓j to neighbor list of 𝜓i
+            𝜓i_neighbors[i + 1] = neighbors
         
-        return 𝜉B, 𝜉h, 𝜉h_rowDict, 𝜉h_columnDict
+        return 𝜉B, 𝜉h, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors
     
     """
     Initialize pheromone adjacency matrix edges with default value
     
-    @name createPheromoneAdjacencyMatrix
+    @name __createPheromoneAdjacencyMatrix
     @param {ndarray} augmented edge adjacency matrix
     @returns {ndarray} pheromone adjacency matrix
     """
     @classmethod
-    def createPheromoneAdjacencyMatrix(self, 𝜉B):
+    def __createPheromoneAdjacencyMatrix(self, 𝜉B):
         if (𝜉B == None):
             raise IndexError("Augmented edge adjacency matrix is empty!")
         
@@ -209,6 +254,41 @@ class CFMTSP:
         τ[τ != 0] = 0.5 # initialize non-empty edges
         
         return τ
+    
+    """
+    Initialize augmented edge selection probability matrix
+    
+    @name __createPr𝜉hMatrix
+    @param {ndarray} 𝜉B augmented edge adjacency matrix
+    @param {ndarray} τ pheromone matrix
+    @param {array} speeds list of available speed selections for vehicle
+    @param {ndarray} adjMatrix adjacency matrix with edge weights
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {dictionary} 𝜓i_neighbors sub-trajectory neighbor look-up table
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @param {number} β variable for determining strength of 𝜂 factor in probability formula
+    @param {number} gamma variable for determining strength of pheromone factor in probability formula
+    @returns {ndarray} augmented edge slection probability matrix
+    """
+    @classmethod
+    def __createPr𝜉hMatrix(self, 𝜉B, τ, speeds, adjMatrix, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
+                          𝜓B_rowDict, edgeEndDict, edgeStartDict, β=1, gamma=1):
+        if (𝜉B == None):
+            raise IndexError("Augmented edge adjacency matrix is empty!")
+        if (τ == None):
+            raise IndexError("Pheromone adjacency matrix is empty!")
+        
+        Pr𝜉h = 𝜉B.copy() # make deep copy
+        calculateProbabilities = lambda 𝜉h: self.__Pr𝜉h(𝜉h, τ, speeds, adjMatrix, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
+                                                          𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
+         # calculate probabilities only for exisiting edges
+        Pr𝜉h = calculateProbabilities(Pr𝜉h[Pr𝜉h != 0])
+        
+        return Pr𝜉h
     
     """
     Adds phermone along augmented route of pheromone matrix
@@ -250,7 +330,7 @@ class CFMTSP:
     @param {number} evaporationRate evaporation rate of pheromone along agumented edge
     """
     @classmethod
-    def __reducePheromoneTrailAmount(self, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate=0.0):
+    def __reducePheromoneTrailAmount(self, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate=0.01):
         for 𝜉h in L𝜉sel:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
@@ -296,23 +376,20 @@ class CFMTSP:
     @param {array} speeds list of available speed selections for vehicle
     @param {ndarray} adjMatrix adjacency matrix with edge weights
     @param {ndarray} 𝜓B trajectory adjacency matrix
-    @param {number} 𝜉h augmented edge index
-    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
-    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {number} i augmented edge row index in 𝜉B
+    @param {number} j augmented edge column index in 𝜉B
     @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
     @param {dictionary} edgeEndDict look-up table of end nodes for edges
     @param {dictionary} edgeStartDict look-up table of start nodes for edges
     @returns {number} travel time for augmented edge indexed by 𝜉h
     """
     @classmethod
-    def __getEdgeTravelTime(self, speeds, adjMatrix, 𝜓B, 𝜉h, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
-        i = 𝜉h_rowDict[𝜉h]
-        j = 𝜉h_columnDict[𝜉h]
+    def __getEdgeTravelTime(self, speeds, adjMatrix, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
         c1_edge = 𝜓B_rowDict[i] # Edge 1
         c2_edge = 𝜓B_rowDict[j] # Edge 2
         si = speeds[(c1_edge - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
         sj = speeds[(c2_edge - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
-        Lij = adjMatrix[edgeStartDict[c1_edge]][edgeEndDict[c1_edge]] # Edge 1 weight/distance
+        Lij = adjMatrix[edgeStartDict[c1_edge]][edgeEndDict[c1_edge]] # Edge 1 weight (i.e. distance)
         
         return self.__getTravelTime(si, sj, Lij)
     
@@ -336,9 +413,84 @@ class CFMTSP:
         totalDistance = 0
         
         for 𝜉h in L𝜉sel:
-            totalDistance += self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, 𝜉h, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+            i = 𝜉h_rowDict[𝜉h]
+            j = 𝜉h_columnDict[𝜉h]
+            totalDistance += self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
         
         return totalDistance
+    
+    """
+    Calculate augmented edge selection probability, via equation (11) of CFMTSP paper
+    
+    @name __Pr𝜉h
+    @param {number} 𝜉h edge selection from augmented edge matrix 𝜉B
+    @param {ndarray} τ pheromone matrix
+    @param {array} speeds list of available speed selections for vehicle
+    @param {ndarray} adjMatrix adjacency matrix with edge weights
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {dictionary} 𝜓i_neighbors sub-trajectory neighbor look-up table
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @param {number} β variable for determining strength of 𝜂 factor in probability formula
+    @param {number} gamma variable for determining strength of pheromone factor in probability formula
+    @returns {number} probability of ant selecting augmented edge 𝜉h
+    """
+    @classmethod
+    def __Pr𝜉h(self, 𝜉h, τ, speeds, adjMatrix, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
+                               𝜓B_rowDict, edgeEndDict, edgeStartDict, β=1, gamma=1):
+        i = 𝜉h_rowDict[𝜉h]
+        j = 𝜉h_columnDict[𝜉h]
+        Σneighbors = 0.0
+        
+        for neighbor𝜓 in 𝜓i_neighbors[i]:
+            # We set 𝜂 to be the multiplicative inverse of the edge travel time
+            𝜂_hi = 1/self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, i, neighbor𝜓, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+            τ_hi = τ[i - 1][neighbor𝜓 - 1]
+            Σneighbors += (𝜂_hi**β) * (τ_hi**gamma)
+        
+        # We set 𝜂 to be the multiplicative inverse of the edge travel time
+        𝜂_h = 1/self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+        τ_h = τ[i - 1][j - 1]
+        
+        return ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
+    
+    """
+    Updates augmented edge selection probability matrix along selected path
+    
+    @name __calculateProbability
+    @param {ndarray} Pr𝜉h augmented edge selection probability matrix
+    @param {array} L𝜉sel array of augmented edge indexes
+    @param {ndarray} τ pheromone matrix
+    @param {array} speeds list of available speed selections for vehicle
+    @param {ndarray} adjMatrix adjacency matrix with edge weights
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {dictionary} 𝜓i_neighbors sub-trajectory neighbor look-up table
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @param {number} β variable for determining strength of 𝜂 factor in probability formula
+    @param {number} gamma variable for determining strength of pheromone factor in probability formula
+    """
+    @classmethod
+    def __calculateProbability(self, Pr𝜉h, L𝜉sel, τ, speeds, adjMatrix, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
+                               𝜓B_rowDict, edgeEndDict, edgeStartDict, β=1, gamma=1):
+        if (Pr𝜉h == None):
+            raise IndexError("Augmented edge slection probability matrix is empty!")
+        if (τ == None):
+            raise IndexError("Pheromone adjacency matrix is empty!")
+        
+        for 𝜉h in L𝜉sel:
+            i = 𝜉h_rowDict[𝜉h]
+            j = 𝜉h_columnDict[𝜉h]
+            
+            # Mutable object
+            Pr𝜉h[i - 1][j - 1] = self.__Pr𝜉h(𝜉h, τ, speeds, adjMatrix, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
+                                               𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
 
 
 class ImageToGPSConverter:
