@@ -16,6 +16,8 @@
 #   - Access to essential trigonometric functions
 # - Numpy (https://numpy.org/)
 #   - Access to numerical computing tools for matrix calculations
+# - random (https://docs.python.org/3/library/random.html)
+#   - Access to pseudo-random number generators for CFMTSP matrix weight initializations
 #
 # @section todo_path_planning TODO
 # - Test modules.
@@ -29,10 +31,11 @@
 # - https://www.researchgate.net/publication/342492385_Novel_Graph_Model_for_Solving_Collision-Free_Multiple-Vehicle_Traveling_Salesman_Problem_Using_Ant_Colony_Optimization
 # - https://blog.roboflow.com/georeferencing-drone-videos/
 #
-# Copyright (c) 2023 Teledatics. All rights reserved.
+# Copyright © 2023 Teledatics. All rights reserved.
 
 import math
 import numpy as np
+import random
 
 class CFMTSP:
     """
@@ -40,6 +43,10 @@ class CFMTSP:
 
     Defines class which implements multiple traveling salesman solution for rovers.
     """
+    
+    ##################
+    # Public Methods #
+    ##################
     
     """
     Constructor
@@ -75,7 +82,7 @@ class CFMTSP:
         self.__addDirectedEdge(node1, node2, adjMatrix, weight)
         self.__addDirectedEdge(node2, node1, adjMatrix, weight)
     
-    @classmethod
+    @classmethod # Speeds list can only include positive, non-zero, float values
     def calculateRoverPaths(self, adjMatrix, vi, speeds, Nm, β=1, gamma=1, evaporationRate=0.01, top=5.0):
         if (adjMatrix == None):
             raise IndexError("Adjacency matrix is empty!")
@@ -88,11 +95,16 @@ class CFMTSP:
         
         eB, edgeEndDict, edgeStartDict, numEdges = self.__createEdgeMatrix(adjMatrix)
         𝜓B, 𝜓B_rowDict = self.__createTrajectoryAdjacencyMatrix(numEdges, len(speeds))
-        𝜉B, 𝜉h_count, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+        𝜉B, 𝜉h_count, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict,
+                                                                                                        edgeEndDict, edgeStartDict)
+        
+        # Important note: CFMTSP paper suggests using acceleration as the weight factor for augmented edges but
+        # we use the edge travel time instead to accommodate non-uniform acceleration (if used)
+        
         τk = []
         Pr𝜉hk = []
-        𝜓kbest = [[] for _ in range(Nu)]
-        Lkunv = None
+        𝜓kbest = None
+        tkbest = None
         
         # Initialize pheromone and probability matrices for each rover/ant "species"
         for k in range(Nu):
@@ -100,18 +112,128 @@ class CFMTSP:
             Pr𝜉hk.append(self.__createPr𝜉hMatrix(𝜉B, τk[k], speeds, adjMatrix, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
                                                    𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma))
         
-        for r in range(Nm):
+        for r in range(Nm): # For each ant/iteration
             vkcurr = vi
-            Lkunv = [[False] * adjMatrix.shape[0] for _ in range(Nu)]
+            Lkunv = [set(range(1, adjMatrix.shape[0] + 1)) for _ in range(Nu)]
             Lek = [[] for _ in range(Nu)]
             L𝜓k = [[] for _ in range(Nu)]
             L𝜉k = [[] for _ in range(Nu)]
             Lk𝜉sel = [[] for _ in range(Nu)]
-            Livis = [[] for _ in range(Nu)]
+            Livis = [{} for _ in range(Nu)]
+            tkimax = [0] * Nu
             
-            #TODO: Finish this part
+            for k in range(Nu): # For each k-th ant species
+                while len(Lkunv[k]) != 0:
+                    Lek[k] = self.__createEdgeList(eB, vkcurr[k])
+                    L𝜓k[k].clear()
+                    for edge in Lek[k]:
+                        if edgeEndDict[edge] in Lkunv[k]: # TODO: Combine if conditions
+                            if self.__isCollided(speeds, top, tkimax[k][-1], Livis, edgeEndDict[edge],
+                                                 adjMatrix[edgeStartDict[edge]][edgeEndDict[edge]]):
+                                continue
+                            
+                            # CreateSubTrajectoriesList()
+                            if vkcurr[k] == vi[k]:
+                                L𝜓k[k] = [𝜓B[edge - 1][0]] # Bot starting from dead stop, so use lowest initial speed
+                            else:
+                                # Filter augmented edges that do not connect previously chosen edge to current edge
+                                L𝜉k[k] = list(filter(lambda x: 𝜉h_columnDict[x] in 𝜓B[edge - 1], L𝜉k[k]))
+                                # Select augmented edge with highest probability
+                                Lk𝜉sel[k].append(self.__selectAugmentedEdge(L𝜉k[k], Pr𝜉hk[k], 𝜉h_rowDict, 𝜉h_columnDict))
+                                # Extract trajectory that is connected to previous trajectory via chosen augmented edge
+                                L𝜓k[k] = [𝜉h_columnDict[Lk𝜉sel[k][-1]]]
+                            
+                            # CreateAugmentedEdgesList()
+                            L𝜉k[k].clear()
+                            for 𝜓p in L𝜓k[k]: # For each p-th trajectory in L𝜓k
+                                L𝜉k[k].append(𝜉B[𝜓p - 1][𝜉B[𝜓p - 1] != 0])
+                            
+                            # CFMTSP paper pseudo-code places augmented edge selection here but that doesn't make sense;
+                            # we first need to know the next viable [normal] edge to determine which target trajectory
+                            # nodes at the endpoints of the augmented edges in L𝜉k are valid.
+                            # See CreateSubTrajectoriesList() implementation above
+                            
+                            # CalculateMaxArrivalTime()
+                            if Lk𝜉sel[k]:
+                                i = 𝜉h_rowDict[Lk𝜉sel[k][-1]]
+                                j = 𝜉h_columnDict[Lk𝜉sel[k][-1]]
+                                tkimax[k] += self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict) + top
+                                Livis[k][edgeStartDict[edge]] = tkimax[k][-1]
+                            
+                            Lkunv[k].remove(edgeEndDict[edge])
+                            vkcurr[k] = edgeEndDict[edge]
+                            
+                            # Additional step for when we have reached the final node, since augmented edges
+                            # are added 1 loop iteration later instead of current iteration
+                            if len(Lkunv[k]) == 0: # We have visited the last node so add final edge to Lk𝜉sel
+                                # Select augmented edge with highest probability (skip filtering since we do not care
+                                # about the next edge connection)
+                                Lk𝜉sel[k].append(self.__selectAugmentedEdge(L𝜉k[k], Pr𝜉hk[k], 𝜉h_rowDict, 𝜉h_columnDict))
+                                
+                                i = 𝜉h_rowDict[Lk𝜉sel[k][-1]]
+                                j = 𝜉h_columnDict[Lk𝜉sel[k][-1]]
+                                tkimax[k] += self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict) + top
+                                Livis[k][edgeEndDict[edge]] = tkimax[k][-1]
+                            
+                            # CFMTSP paper pseudo-code does not show break statement, but we need it; we do not need to
+                            # look at other edges since we successfully chose one
+                            break
+                        # END if edgeEndDict[edge] in Lkunv[k]
+                        else:
+                            continue
+                    # END for edge in Lek[k]
+                    if not L𝜓k[k]:
+                        self.__reducePheromoneTrailAmount(Lk𝜉sel[k], τk[k], 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
+                        break # "goto"
+                    # "L𝜓k <- {}" line moved to top of while loop to support double break logic equivalent of goto
+                # END while len(Lkunv[k]) != 0
+                if not L𝜓k[k]:
+                    break # Break out of "for k in range(Nu)" loop
+            # END for k in range(Nu)
+            if not L𝜓k[k]:
+                continue # Move to top of "for r in range(Nm)" loop
+            
+            for k in range(Nu):
+                self.__calculatePheromoneTrailsAmount(Lk𝜉sel[k], τk[k], speeds, adjMatrix, 𝜓B, 𝜉h_rowDict,
+                                                      𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+                calculateProbabilities = lambda 𝜉h: self.__Pr𝜉h(𝜉h, τk[k], speeds, adjMatrix, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
+                                                                  𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
+                # calculate probabilities only for exisiting edges
+                Pr𝜉hk[k] = calculateProbabilities(Pr𝜉hk[k][Pr𝜉hk[k] != 0])
+                
+                # TODO: Finish remainder of algorithm
+                
+        # END for r in range(Nm)
         
         return
+    
+    ###################
+    # Private Methods #
+    ###################
+    
+    """
+    Selects augmented edge with highest probability weight
+    
+    @name __isCollided
+    @param {array} L𝜉k list of augmented edges
+    @param {ndarray} Pr𝜉hk augmented edge probability matrix
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in Pr𝜉hk
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in Pr𝜉hk
+    @returns {number} augmented edge index
+    """
+    @classmethod
+    def __selectAugmentedEdge(self, L𝜉k, Pr𝜉hk, 𝜉h_rowDict, 𝜉h_columnDict):
+        𝜉h_select = 0
+        highestProb = 0.0
+        
+        for 𝜉h in L𝜉k:
+            i = 𝜉h_rowDict[𝜉h]
+            j = 𝜉h_columnDict[𝜉h]
+            if Pr𝜉hk[i - 1][j - 1] > highestProb:
+                𝜉h_select = 𝜉h
+                highestProb = Pr𝜉hk[i - 1][j - 1]
+            
+        return 𝜉h_select
     
     """
     Add directed edge between nodes
@@ -119,16 +241,16 @@ class CFMTSP:
     @name addDirectedEdge
     @param {number} node1 start node in adjacency matrix
     @param {number} node2 end node in adjacency matrix
-    @param {ndarray} [mutable] adjacency matrix
+    @param {ndarray} adjMatrix adjacency matrix
     @param {number} weight node1 -> node2 edge weight
     """
     @classmethod
     def __addDirectedEdge(self, node1, node2, adjMatrix, weight):
         if (adjMatrix == None):
             raise IndexError("Adjacency matrix is empty!")
-        if (adjMatrix.shape[0] < node1):
+        if (adjMatrix.shape[0] <= node1):
             raise ValueError("node1 value out of bounds!")
-        if (adjMatrix.shape[1] < node2):
+        if (adjMatrix.shape[1] <= node2):
             raise ValueError("node2 value out of bounds!")
         if (node1 == node2):
             raise ValueError("node1 and node2 value must not match!")
@@ -142,7 +264,7 @@ class CFMTSP:
     Create edge matrix eB from adjacency matrix, via Algorithm 1 of CFMTSP paper
     
     @name __createEdgeMatrix
-    @param {ndarray} adjacency matrix
+    @param {ndarray} adjMatrix adjacency matrix
     @returns {ndarray} edge matrix
              {dictionary} edge end node look-up table
              {dictionary} edge start node look-up table
@@ -167,6 +289,26 @@ class CFMTSP:
                     edgeStartDict[q] = i + 1
                     
         return eB, edgeEndDict, edgeStartDict, q
+    
+    """
+    Create edge list, with specific starting node, from edge matrix
+    
+    @name __createEdgeList
+    @param {ndarray} eB edge matrix
+    @param {number} vkcurr starting node
+    @returns {array} list of edges with specified starting node
+    """
+    @classmethod
+    def __createEdgeList(self, eB, vkcurr):
+        if (eB == None):
+            raise IndexError("Edge matrix is empty!")
+        if (eB.shape[0] != eB.shape[1]):
+            raise IndexError("Edge matrix must be square!")
+        if (eB.shape[0] <= vkcurr):
+            raise ValueError("Start node value out of bounds!")
+        
+        # Return non-zero edges in eB with starting node vkcurr
+        return eB[vkcurr][eB[vkcurr] != 0]
     
     """
     Create trajectory adjacency matrix 𝜓B from edge matrix eB, via equation (7) of CFMTSP paper
@@ -251,7 +393,10 @@ class CFMTSP:
             raise IndexError("Augmented edge adjacency matrix is empty!")
         
         τ = 𝜉B.copy() # make deep copy
-        τ[τ != 0] = 0.5 # initialize non-empty edges
+        randomInit = lambda: math.fmod((random.random() + 0.1), 1.0) # Prevents zero from being generated
+        τ = randomInit(τ[τ != 0]) # initialize non-empty edges
+        # TODO: Remove this?
+        # τ[τ != 0] = 0.5 # initialize non-empty edges
         
         return τ
     
@@ -347,7 +492,7 @@ class CFMTSP:
     @param {number} Lij edge length between nodes i and j
     @returns {number} uniform acceleration from node i to node j
     """
-    @classmethod
+    @classmethod # TODO: Change this for non-uniform acceleration?
     def __getAcceleration(self, si, sj, Lij):
         return (sj**2 - si**2) / (2*Lij)
     
@@ -360,7 +505,7 @@ class CFMTSP:
     @param {number} Lij edge length between nodes i and j
     @returns {number} travel time from node i to node j
     """
-    @classmethod
+    @classmethod # TODO: Change this for non-uniform acceleration?
     def __getTravelTime(self, si, sj, Lij):
         a_ij = self.__getAcceleration(si, sj, Lij)
         
@@ -368,6 +513,39 @@ class CFMTSP:
             return Lij/si
         else:
             return (-si + math.sqrt(si**2 + 2*a_ij*Lij)) / a_ij
+    
+    """
+    Determines if collision can/will happen along selected edge
+    
+    @name __isCollided
+    @param {array} speeds list of available speed selections for vehicle
+    @param {number} top operational time of vehicle at a node
+    @param {number} Livis list of visited nodes and arrival times
+    @param {number} edgeEnd target node of edge
+    @param {number} edgeDistance edge weight
+    @returns {bool} collision prediction
+    """
+    @classmethod
+    def __isCollided(self, speeds, top, currentTime, Livis, edgeEnd, edgeDistance):
+        for k in range(len(Livis)):
+            if edgeEnd in Livis[k]:
+                # TODO: Add if condition to limit speed selection to lowest speeds for
+                #       starting vertex? Makes sense since bots would be rolling from dead start
+                for si in speeds:
+                    for sj in speeds:
+                        tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
+                        tik2 = Livis[k][edgeEnd]
+                        if abs(tik1 - tik2) <= top: # Collision condition according to Definition 6 of CFMTSP paper
+                            # CFMTSP paper is fuzzy on the details but seems to imply that
+                            # "minimum arrival time difference" determines collision state. If that is the case,
+                            # then we just return TRUE the moment we find 1 possibility of collision among the
+                            # various combinations of velocity selections, and try another edge. However it looks like this
+                            # could lead to the [increased] possibility of the algorithm getting stuck if the bots are
+                            # clustered together. May want to consider changing the main algorithm to allow sub-set of
+                            # trajectories that will not result in a collision at the common end node.
+                            return True
+        
+        return False
     
     """
     Calculate travel time along augmented edge
@@ -410,14 +588,14 @@ class CFMTSP:
     """
     @classmethod
     def __getPathTravelTime(self, speeds, adjMatrix, 𝜓B, L𝜉sel, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
-        totalDistance = 0
+        totalTravelTime = 0.0
         
         for 𝜉h in L𝜉sel:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
-            totalDistance += self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+            totalTravelTime += self.__getEdgeTravelTime(speeds, adjMatrix, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
         
-        return totalDistance
+        return totalTravelTime
     
     """
     Calculate augmented edge selection probability, via equation (11) of CFMTSP paper
@@ -499,6 +677,10 @@ class ImageToGPSConverter:
 
     Defines class which encapsulates methodology of converting drone image pixel x-y cooridinates to GPS coordinates.
     """
+    
+    ##################
+    # Public Methods #
+    ##################
 
     """
     Calculate GPS Coordinates of pixel on an image with given drone position, FOV, and compass heading
@@ -552,7 +734,11 @@ class ImageToGPSConverter:
 
         # Use that distance and bearing to get the GPS location of the pixel coordinate
         return ImageToGPSConverter.__rhumbDestination(droneCoord, distance, math.fmod(bearing + angle, 360.0), options)
-
+    
+    ###################
+    # Private Methods #
+    ###################
+    
     """
     Returns the destination coordinates having traveled the given distance along a Rhumb line from the 
     origin Point with the (varant) given bearing.
