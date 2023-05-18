@@ -100,6 +100,7 @@ class CFMTSP:
     @param {number} β exponential factor for controlling amount of weight edge travel times have in edge selection
     @param {number} gamma exponential factor for controlling amount of weight ant pheromone levels have in edge selection
     @param {number} evaporationRate rate at which ant pheromones along graph edges diminish per iteration
+    @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
     @returns {ndarray} selected graph vertex path, per rover, or None if no viable solution found
              {ndarray} selected [initial] velocities, per graph vertex, or None if no viable solution found
     """
