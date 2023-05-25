@@ -106,8 +106,8 @@ class CFMTSP:
     """
     @classmethod
     def calculateRoverPaths(self, vi, speeds, Nm, β=1, gamma=1, evaporationRate=0.01, top=5.0):
-        if (self.adjMatrix == None):
-            raise IndexError("Adjacency matrix is empty!")
+        if self.adjMatrix is None:
+            raise IndexError("Adjacency matrix is uninitialized!")
         if not vi:
             raise ValueError("Starting vertex list must not be empty")
         if not speeds:
@@ -124,6 +124,15 @@ class CFMTSP:
         𝜓B, 𝜓B_rowDict = self.__createTrajectoryAdjacencyMatrix(numEdges, len(speeds))
         𝜉B, 𝜉h_count, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict,
                                                                                                         edgeEndDict, edgeStartDict)
+        # TODO: Remove these printouts after simulation testing finished
+        print("Adjacency Matrix:")
+        print(self.adjMatrix)
+        print("\nEdge Matrix:")
+        print(eB)
+        print("\nTrajectory Adjacency Matrix:")
+        print(𝜓B)
+        print("\nAugmented Edge Adjacency Matrix:")
+        print(𝜉B)
         
         # Important note: CFMTSP paper suggests using acceleration as the weight factor for augmented edges but
         # we use the edge travel time instead to accommodate non-uniform acceleration (if used)
@@ -142,7 +151,7 @@ class CFMTSP:
                                                    𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma))
         
         for r in range(Nm): # For each ant/iteration
-            vkcurr = vi
+            vkcurr = copy.deepcopy(vi)
             Lkunv = [set(range(1, self.adjMatrix.shape[0] + 1)) for _ in range(Nu)]
             Lek = [[] for _ in range(Nu)]
             L𝜓k = [[] for _ in range(Nu)]
@@ -166,7 +175,7 @@ class CFMTSP:
                                 L𝜓k[k] = [𝜓B[edge - 1][0]] # Bot starting from dead stop, so use lowest initial speed
                             else:
                                 # Filter augmented edges that do not connect previously chosen edge to current edge
-                                L𝜉k[k] = list(filter(lambda x: 𝜉h_columnDict[x] in 𝜓B[edge - 1], L𝜉k[k]))
+                                L𝜉k[k] = list(filter(lambda x: (𝜉h_columnDict[x] in 𝜓B[edge - 1]), L𝜉k[k]))
                                 # Select augmented edge with highest probability
                                 Lk𝜉sel[k].append(self.__selectAugmentedEdge(L𝜉k[k], Pr𝜉hk[k], 𝜉h_rowDict, 𝜉h_columnDict))
                                 # Extract trajectory that is connected to previous trajectory via chosen augmented edge
@@ -175,7 +184,7 @@ class CFMTSP:
                             # CreateAugmentedEdgesList()
                             L𝜉k[k].clear()
                             for 𝜓p in L𝜓k[k]: # For each p-th trajectory in L𝜓k
-                                L𝜉k[k].append(𝜉B[𝜓p - 1][𝜉B[𝜓p - 1] != 0])
+                                L𝜉k[k] += list(𝜉B[𝜓p - 1][𝜉B[𝜓p - 1] != 0])
                             
                             # CFMTSP paper pseudo-code places augmented edge selection here but that doesn't make sense;
                             # we first need to know the next viable [normal] edge to determine which target trajectory
@@ -190,7 +199,7 @@ class CFMTSP:
                                 Livis[k][edgeStartDict[edge]] = tkimax[k]
                             
                             Lkunv[k].remove(edgeEndDict[edge])
-                            vkcurr[k] = edgeEndDict[edge]
+                            vkcurr[k] = edgeEndDict[edge] - 1
                             
                             # Additional step for when we have reached the final node, since augmented edges
                             # are added 1 loop iteration later instead of current iteration
@@ -228,7 +237,7 @@ class CFMTSP:
                 calculateProbabilities = lambda 𝜉h: self.__Pr𝜉h(𝜉h, τk[k], speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
                                                                   𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
                 # Calculate probabilities only for existing edges
-                Pr𝜉hk[k] = calculateProbabilities(Pr𝜉hk[k][Pr𝜉hk[k] != 0])
+                Pr𝜉hk[k][Pr𝜉hk[k] != 0] = np.array(list(map(calculateProbabilities, Pr𝜉hk[k][Pr𝜉hk[k] != 0])))
             
             # Save the iteration with the minimal worst-case time
             max_tkimax = max(tkimax)
@@ -290,15 +299,15 @@ class CFMTSP:
     """
     @classmethod
     def __addDirectedEdge(self, node1, node2, weight):
-        if (self.adjMatrix == None):
-            raise IndexError("Adjacency matrix is empty!")
-        if (self.adjMatrix.shape[0] <= node1):
+        if self.adjMatrix is None:
+            raise IndexError("Adjacency matrix is uninitialized!")
+        if self.adjMatrix.shape[0] <= node1:
             raise ValueError("node1 value out of bounds!")
-        if (self.adjMatrix.shape[1] <= node2):
+        if self.adjMatrix.shape[1] <= node2:
             raise ValueError("node2 value out of bounds!")
-        if (node1 == node2):
+        if node1 == node2:
             raise ValueError("node1 and node2 value must not match!")
-        if (weight == 0):
+        if weight == 0.0:
             raise ValueError("edge weight must be non-zero value!")
         
         # Mutable object
@@ -315,13 +324,15 @@ class CFMTSP:
     """
     @classmethod
     def __createEdgeMatrix(self):
-        if (self.adjMatrix == None):
-            raise IndexError("Adjacency matrix is empty!")
+        if self.adjMatrix is None:
+            raise IndexError("Adjacency matrix is uninitialized!")
         
         eB = self.adjMatrix.copy() # make deep copy
+        eB[eB != 0.0] += 1.0 # cover for possible round-off errors
         edgeEndDict = {}
         edgeStartDict = {}
         q = 0
+        eB = eB.astype(type(q)) # change to int type
         
         for i in range(eB.shape[0]): # rows
             for j in range(eB.shape[1]): # columns
@@ -343,15 +354,15 @@ class CFMTSP:
     """
     @classmethod
     def __createEdgeList(self, eB, vkcurr):
-        if (eB == None):
+        if eB is None:
             raise IndexError("Edge matrix is empty!")
-        if (eB.shape[0] != eB.shape[1]):
+        if eB.shape[0] != eB.shape[1]:
             raise IndexError("Edge matrix must be square!")
-        if (eB.shape[0] <= vkcurr):
+        if eB.shape[0] <= vkcurr:
             raise ValueError("Start node value out of bounds!")
         
         # Return non-zero edges in eB with starting node vkcurr
-        return eB[vkcurr][eB[vkcurr] != 0]
+        return list(eB[vkcurr][eB[vkcurr] != 0])
     
     """
     Create trajectory adjacency matrix 𝜓B from edge matrix eB, via equation (7) of CFMTSP paper
@@ -365,6 +376,7 @@ class CFMTSP:
     @classmethod
     def __createTrajectoryAdjacencyMatrix(self, numEdges, numSpeeds):
         𝜓B = np.zeros((numEdges, numSpeeds))
+        𝜓B = 𝜓B.astype('int') # change to int type
         𝜓B_rowDict = {}
         
         for i in range(𝜓B.shape[0]): # rows
@@ -391,7 +403,7 @@ class CFMTSP:
     """
     @classmethod
     def __createAugmentedEdgeAdjacencyMatrix(self, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
-        if (𝜓B == None):
+        if 𝜓B is None:
             raise IndexError("Trajectory adjacency matrix is empty!")
         
         # |𝜓B|
@@ -399,6 +411,7 @@ class CFMTSP:
         
         # Initialize 𝜉B with zeros
         𝜉B = np.zeros((num_elements, num_elements))
+        𝜉B = 𝜉B.astype('int') # change to int type
         
         # Algorithm body
         𝜉h_rowDict = {}
@@ -432,14 +445,14 @@ class CFMTSP:
     """
     @classmethod
     def __createPheromoneAdjacencyMatrix(self, 𝜉B):
-        if (𝜉B == None):
+        if 𝜉B is None:
             raise IndexError("Augmented edge adjacency matrix is empty!")
         
         τ = 𝜉B.copy() # make deep copy
-        randomInit = lambda: math.fmod((random.random() + 0.1), 1.0) # Prevents zero from being generated
-        τ = randomInit(τ[τ != 0]) # initialize non-empty edges
-        # TODO: Remove this?
-        # τ[τ != 0] = 0.5 # initialize non-empty edges
+        τ = τ.astype('float64') # Change to floating precision
+        # randomInit = lambda: math.fmod((random.random() + 0.1), 1.0) # Prevents zero from being generated
+        # τ = randomInit(τ[τ != 0]) # initialize non-empty edges
+        τ[τ != 0] = 0.5 # initialize non-empty edges
         
         return τ
     
@@ -464,16 +477,17 @@ class CFMTSP:
     @classmethod
     def __createPr𝜉hMatrix(self, 𝜉B, τ, speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
                           𝜓B_rowDict, edgeEndDict, edgeStartDict, β=1, gamma=1):
-        if (𝜉B == None):
+        if 𝜉B is None:
             raise IndexError("Augmented edge adjacency matrix is empty!")
-        if (τ == None):
+        if τ is None:
             raise IndexError("Pheromone adjacency matrix is empty!")
         
         Pr𝜉h = 𝜉B.copy() # make deep copy
+        Pr𝜉h = Pr𝜉h.astype('float64') # Change to floating precision
         calculateProbabilities = lambda 𝜉h: self.__Pr𝜉h(𝜉h, τ, speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
                                                           𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
          # calculate probabilities only for exisiting edges
-        Pr𝜉h = calculateProbabilities(Pr𝜉h[Pr𝜉h != 0])
+        Pr𝜉h[Pr𝜉h != 0] = np.array(list(map(calculateProbabilities, Pr𝜉h[Pr𝜉h != 0])))
         
         return Pr𝜉h
     
@@ -606,7 +620,7 @@ class CFMTSP:
         c1_edge = 𝜓B_rowDict[i] # Edge 1
         si = speeds[(i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
         sj = speeds[(j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
-        Lij = self.adjMatrix[edgeStartDict[c1_edge]][edgeEndDict[c1_edge]] # Edge 1 weight (i.e. distance)
+        Lij = self.adjMatrix[edgeStartDict[c1_edge] - 1][edgeEndDict[c1_edge] - 1] # Edge 1 weight (i.e. distance)
         
         return self.__getTravelTime(si, sj, Lij)
     
