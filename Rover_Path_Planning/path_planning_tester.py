@@ -75,7 +75,7 @@ def main():
     roverPatrolPathPlanner.addUndirectedEdge(9, 5, math.dist(nodes[9], nodes[5]))
     roverPatrolPathPlanner.addUndirectedEdge(9, 7, math.dist(nodes[9], nodes[7]))
     
-    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm, evaporationRate=0.05)
+    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm, β=1, gamma=1, evaporationRate=0.05, top=5.0)
     if selectedVertices is None:
         print("No solution found.")
     else:
