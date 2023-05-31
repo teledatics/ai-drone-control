@@ -22,21 +22,21 @@ def main():
     
     # Simulate rover patrol path planning
     nodes = [
-        [150, -125], # NODE 0
-        [-150, 50],  # NODE 1
-        [110, -25],  # NODE 2
-        [60, 150],   # NODE 3
-        [-50, -100], # NODE 4
-        [0, 0],      # NODE 5
-        [-10, -10],  # NODE 6
-        [75, -75],   # NODE 7
-        [-110, 160], # NODE 8
-        [-10, -40]   # NODE 9
+        [150.0, -125.0], # NODE 0
+        [-150.0, 50.0],  # NODE 1
+        [110.0, -25.0],  # NODE 2
+        [60.0, 150.0],   # NODE 3
+        [-50.0, -100.0], # NODE 4
+        [0.0, 0.0],      # NODE 5
+        [-10.0, -10.0],  # NODE 6
+        [75.0, -75.0],   # NODE 7
+        [-110.0, 160.0], # NODE 8
+        [-10.0, -40.0]   # NODE 9
     ]
     numNodes = len(nodes)
-    speeds = [0.1, 0.5, 1, 1.5]
+    speeds = [0.1, 0.5, 1.0, 1.5]
     vi = [4, 1, 3] # 3 Rovers
-    Nm = 3000 # Ants/Iterations
+    Nm = 100 # Ants/Iterations
     
     roverPatrolPathPlanner = CFMTSP()
     roverPatrolPathPlanner.initAdjacencyMatrix(numNodes)
@@ -79,7 +79,7 @@ def main():
     if selectedVertices is None:
         print("No solution found.")
     else:
-        for k in selectedVertices:
+        for k in range(len(selectedVertices)):
             print("\nPath for rover " + str(k) + ":")
             print(selectedVertices[k])
             print("Path speeds for rover " + str(k) + ":")

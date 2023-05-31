@@ -16,15 +16,12 @@
 #   - Access to essential trigonometric functions
 # - Numpy (https://numpy.org/)
 #   - Access to numerical computing tools for matrix calculations
-# - random (https://docs.python.org/3/library/random.html)
-#   - Access to pseudo-random number generators for CFMTSP matrix weight initializations
 # - sys (https://docs.python.org/3/library/sys.html)
 #   - Access to system-specific parameters and functions
 # - copy (https://docs.python.org/3/library/copy.html)
 #   - Access to deep copy operations
 #
 # @section todo_path_planning TODO
-# - Test and verify CFMTSP solution (with simulated data)
 # - Modify CFMTSP solution to accomodate NON-uniform acceleration
 # - Modify CFMTSP solution to account for speed limits needed to accomodate sharp turns; until then, keep max speed low
 # - Add matrix to cache augmented graph edge weights for CFMTSP solution
@@ -32,6 +29,7 @@
 #
 # @section author_path_planning Author(s)
 # - Created by Justin Carrel on 02/26/2023
+# - Modified by Justin Carrel on 05/31/2023
 #
 # @section references_path_planning References
 # - https://www.researchgate.net/publication/342492385_Novel_Graph_Model_for_Solving_Collision-Free_Multiple-Vehicle_Traveling_Salesman_Problem_Using_Ant_Colony_Optimization
@@ -41,8 +39,6 @@
 
 import math
 import numpy as np
-# TODO: Determine if we still need this
-# import random
 import sys
 import copy
 
@@ -185,6 +181,9 @@ class CFMTSP:
                         break # "goto"; there is no "goto" command so we have to mimic the ability via a series of breaks and continues
                     # "L𝜓k <- {}" line moved to top of while loop (inside __chooseAugmentedEdge()) to support double break
                     # logic equivalent of goto
+                    
+                    # TODO: May want to consider moving pheromone increase logic to "else" block here
+                    
                 # END while len(Lkunv[k]) != 0
                 if not L𝜓k[k]:
                     break # Break out of "for k in range(Nu)" loop
@@ -216,8 +215,8 @@ class CFMTSP:
             for k in range(Nu):
                 for 𝜉h in 𝜓kbest[k]:
                     𝜓i = 𝜉h_rowDict[𝜉h]
-                    selectedVertices.append(edgeStartDict(𝜓B_rowDict[𝜓i]) - 1) # Set to 0-based index
-                    selectedSpeeds.append(speeds[(𝜓i - 1) % 𝜓B.shape[1]])
+                    selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓i]] - 1) # Set to 0-based index
+                    selectedSpeeds[k].append(speeds[(𝜓i - 1) % 𝜓B.shape[1]])
         
         return selectedVertices, selectedSpeeds
     
@@ -258,6 +257,9 @@ class CFMTSP:
         viableEdges = []
         bestAugmentedEdge = None
         bestProbability = sys.float_info.min
+        # For debugging
+        chosen_e1 = None
+        chosen_e2 = None
         
         # From cold start, we need to select from all possible edges
         if not Lk𝜉sel[k]:
@@ -274,10 +276,7 @@ class CFMTSP:
         else:
             nextTrajectory = 𝜉h_columnDict[Lk𝜉sel[k][-1]]
             nextEdge = 𝜓B_rowDict[nextTrajectory]
-            if edgeEndDict[nextEdge] in Lkunv[k]:
-                if not self.__isCollided(speeds, top, tkimax[k], Livis, edgeEndDict[nextEdge],
-                                         self.adjMatrix[edgeStartDict[nextEdge] - 1][edgeEndDict[nextEdge] - 1]):
-                    viableEdges.append(nextEdge)
+            viableEdges.append(nextEdge)
         
         # Find viable edge with best probability
         for edge in viableEdges:
@@ -298,10 +297,16 @@ class CFMTSP:
             if len(Lkunv[k]) > 2: # TODO: Check that this conditional value is correct
                 L𝜉k = list(filter(lambda 𝜉h: (edgeEndDict[𝜓B_rowDict[𝜉h_columnDict[𝜉h]]] - 1) != vi[k], L𝜉k))
             
-            # TODO: CONTINUE HERE
-            # TODO: CHECKING FOR COLLISION AND REPEAT VISITS SHOULD PROBABLY BE MOVED HERE
+            # Perform extra filtering iff the next [un-augmented] vertex is not the last one
+            if len(Lkunv[k]) > 1:
+                # Remove edges that do not lead to an unvisited vertex
+                L𝜉k = list(filter(lambda 𝜉h: edgeEndDict[𝜓B_rowDict[𝜉h_columnDict[𝜉h]]] in Lkunv[k], L𝜉k))
+                # Remove augmented edges whose target sub-trajectory will lead to a collision
+                L𝜉k = list(filter(lambda 𝜉h: not self.__willCollide(𝜉h, k, speeds, top, tkimax, Livis, edgeStartDict, edgeEndDict,
+                                                                      𝜓B, 𝜓B_rowDict, 𝜉h_columnDict, 𝜉h_rowDict), L𝜉k))
             
             if not L𝜉k:
+                L𝜓k[k].clear()
                 break # No viable augmented edges
             
             # Select augmented edge with highest probability
@@ -312,13 +317,16 @@ class CFMTSP:
             if Pr𝜉hk[k][i - 1][j - 1] > bestProbability:
                 bestAugmentedEdge = 𝜉h_candidate
                 bestProbability = Pr𝜉hk[k][i - 1][j - 1]
+                # For debugging
+                chosen_e1 = 𝜓B_rowDict[𝜉h_rowDict[𝜉h_candidate]]
+                chosen_e2 = 𝜓B_rowDict[𝜉h_columnDict[𝜉h_candidate]]
         
         return bestAugmentedEdge
     
     """
     Selects augmented edge with highest probability weight
     
-    @name __isCollided
+    @name __selectAugmentedEdge
     @param {array} L𝜉k list of augmented edges
     @param {ndarray} Pr𝜉hk augmented edge probability matrix
     @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in Pr𝜉hk
@@ -500,8 +508,6 @@ class CFMTSP:
         
         τ = 𝜉B.copy() # make deep copy
         τ = τ.astype('float64') # Change to floating precision
-        # randomInit = lambda: math.fmod((random.random() + 0.1), 1.0) # Prevents zero from being generated
-        # τ = randomInit(τ[τ != 0]) # initialize non-empty edges
         τ[τ != 0.0] = 0.5 # initialize non-empty edges
         
         return τ
@@ -559,7 +565,7 @@ class CFMTSP:
     @classmethod
     def __calculatePheromoneTrailsAmount(self, k, L𝜉sel, τ, speeds, 𝜓B, 𝜉h_rowDict,
                                          𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
-        totalPathTime = self.__getPathTravelTime(speeds, 𝜓B, L𝜉sel, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict,
+        totalPathTime = self.__getPathTravelTime(speeds, 𝜓B, L𝜉sel[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict,
                                                  edgeEndDict, edgeStartDict)
         for 𝜉h in L𝜉sel[k]:
             i = 𝜉h_rowDict[𝜉h]
@@ -653,6 +659,34 @@ class CFMTSP:
                             return True
         
         return False
+    
+    """
+    Determines if target sub-trajectory of current augmented edge will lead to a collision.
+    
+    @name __willCollide
+    @param {number} 𝜉h edge selection from augmented edge matrix 𝜉B
+    @param {number} k index for mutable objects
+    @param {array} speeds list of rover/ant velocity options (positive, non-zero, float values) along graph edges
+    @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
+    @param {ndarray} tkimax maximum route travel time of each ant/rover in current iteration
+    @param {array} Livis list of visited nodes, per ant/rover, and associated arrival times
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @returns {bool} collision prediction
+    """
+    @classmethod
+    def __willCollide(self, 𝜉h, k, speeds, top, tkimax, Livis, edgeStartDict, edgeEndDict, 𝜓B, 𝜓B_rowDict, 𝜉h_columnDict, 𝜉h_rowDict):
+        𝜓i = 𝜉h_rowDict[𝜉h]
+        𝜓j = 𝜉h_columnDict[𝜉h]
+        nextEdge = 𝜓B_rowDict[𝜓j]
+        next_tkimax = tkimax[k] + self.__getEdgeTravelTime(speeds, 𝜓B, 𝜓i, 𝜓j, 𝜓B_rowDict, edgeEndDict, edgeStartDict) + top
+        
+        return self.__isCollided(speeds, top, next_tkimax, Livis, edgeEndDict[nextEdge],
+                                 self.adjMatrix[edgeStartDict[nextEdge] - 1][edgeEndDict[nextEdge] - 1])
     
     """
     Calculate travel time along augmented edge
