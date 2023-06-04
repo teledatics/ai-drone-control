@@ -314,7 +314,7 @@ class CFMTSP:
         return bestAugmentedEdge
     
     """
-    Selects augmented edge with highest probability weight, , via equation (11) of CFMTSP paper
+    Selects augmented edge with highest probability weight, via equation (11) of CFMTSP paper
     
     @name __selectAugmentedEdge
     @param {array} L𝜉k list of augmented edges
