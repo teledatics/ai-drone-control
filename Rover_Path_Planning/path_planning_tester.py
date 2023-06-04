@@ -36,7 +36,8 @@ def main():
     numNodes = len(nodes)
     speeds = [0.1, 0.5, 1.0, 1.5]
     vi = [4, 1, 3] # 3 Rovers
-    Nm = 100 # Ants/Iterations
+    # NOTE: It has been suggested to have at least as many ants as there are vertices
+    Nm = 150 # Ants/Iterations
     
     roverPatrolPathPlanner = CFMTSP()
     roverPatrolPathPlanner.initAdjacencyMatrix(numNodes)

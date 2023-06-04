@@ -22,6 +22,7 @@
 #   - Access to deep copy operations
 #
 # @section todo_path_planning TODO
+# - Modify path selection to use random number generator instead of always picking only highest weight edge
 # - Modify CFMTSP solution to accomodate NON-uniform acceleration
 # - Modify CFMTSP solution to account for speed limits needed to accomodate sharp turns; until then, keep max speed low
 # - Add matrix to cache augmented graph edge weights for CFMTSP solution
@@ -29,7 +30,7 @@
 #
 # @section author_path_planning Author(s)
 # - Created by Justin Carrel on 02/26/2023
-# - Modified by Justin Carrel on 05/31/2023
+# - Modified by Justin Carrel on 06/04/2023
 #
 # @section references_path_planning References
 # - https://www.researchgate.net/publication/342492385_Novel_Graph_Model_for_Solving_Collision-Free_Multiple-Vehicle_Traveling_Salesman_Problem_Using_Ant_Colony_Optimization
@@ -122,21 +123,21 @@ class CFMTSP:
         𝜉B, 𝜉h_count, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict,
                                                                                                         edgeEndDict, edgeStartDict)
         
+        # For debug purposes
+        print("Shape of 𝜉B matrix is " + str(𝜉B.shape[0]) + " by " + str(𝜉B.shape[1]))
+        
         # Important note: CFMTSP paper suggests using acceleration as the weight factor for augmented edges but
         # we use the edge travel time instead to accommodate non-uniform acceleration (if used)
         
         τk = []
-        Pr𝜉hk = []
         𝜓kbest = None
         tkbest = sys.float_info.max
         selectedVertices = None
         selectedSpeeds = None
         
-        # Initialize pheromone and probability matrices for each rover/ant "species"
+        # Initialize pheromone matrices for each rover/ant "species"
         for k in range(Nu):
             τk.append(self.__createPheromoneAdjacencyMatrix(𝜉B))
-            Pr𝜉hk.append(self.__createPr𝜉hMatrix(𝜉B, τk[k], speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
-                                                   𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma))
         
         for r in range(Nm): # For each ant/iteration
             vkcurr = copy.deepcopy(vi)
@@ -156,7 +157,7 @@ class CFMTSP:
                     
                     nextAugmentedEdge = self.__chooseAugmentedEdge(k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel,
                                                                    eB, edgeStartDict, edgeEndDict, 𝜓B, 𝜓B_rowDict, vkcurr, vi,
-                                                                   𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, Pr𝜉hk)
+                                                                   𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, τk, β, gamma)
                     if nextAugmentedEdge:
                         Lk𝜉sel[k].append(nextAugmentedEdge)
                         
@@ -172,18 +173,11 @@ class CFMTSP:
                         vkcurr[k] = edgeEndDict[ei] - 1
                     
                     if not L𝜓k[k]:
-                        # Reduce pheromones along chosen path and update probability matrix
+                        # Reduce pheromones along chosen path
                         self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
-                        calculateProbabilities = lambda 𝜉h: self.__Pr𝜉h(𝜉h, τk[k], speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
-                                                                          𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
-                        # Calculate probabilities only for existing edges
-                        Pr𝜉hk[k][Pr𝜉hk[k] != 0.0] = np.array(list(map(calculateProbabilities, 𝜉B[𝜉B != 0])))
                         break # "goto"; there is no "goto" command so we have to mimic the ability via a series of breaks and continues
                     # "L𝜓k <- {}" line moved to top of while loop (inside __chooseAugmentedEdge()) to support double break
                     # logic equivalent of goto
-                    
-                    # TODO: May want to consider moving pheromone increase logic to "else" block here
-                    
                 # END while len(Lkunv[k]) != 0
                 if not L𝜓k[k]:
                     break # Break out of "for k in range(Nu)" loop
@@ -192,13 +186,9 @@ class CFMTSP:
                 continue # Move to top of "for r in range(Nm)" loop
             
             for k in range(Nu): # for all k ε {1,2,...,Nu}
-                # Increase pheromones along chosen path and update probability matrix
+                # Increase pheromones along chosen path
                 self.__calculatePheromoneTrailsAmount(k, Lk𝜉sel, τk, speeds, 𝜓B, 𝜉h_rowDict,
                                                       𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
-                calculateProbabilities = lambda 𝜉h: self.__Pr𝜉h(𝜉h, τk[k], speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
-                                                                  𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
-                # Calculate probabilities only for existing edges
-                Pr𝜉hk[k][Pr𝜉hk[k] != 0.0] = np.array(list(map(calculateProbabilities, 𝜉B[𝜉B != 0])))
             
             # Save the iteration with the minimal worst-case time
             max_tkimax = max(tkimax)
@@ -247,16 +237,19 @@ class CFMTSP:
     @param {ndarray} 𝜉B augmented-edge adjacency matrix
     @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
     @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
-    @param {ndarray} Pr𝜉hk augmented-edge selection probability matrix
+    @param {number} β exponential factor for controlling amount of weight edge travel times have in edge selection
+    @param {number} gamma exponential factor for controlling amount of weight ant pheromone levels have in edge selection
+    @param {ndarray} τk augmented-edge pheromone matrix
     @returns {number} augmented edge index
     """
     @classmethod
     def __chooseAugmentedEdge(self, k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel, eB, edgeStartDict, edgeEndDict,
-                              𝜓B, 𝜓B_rowDict, vkcurr, vi, 𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, Pr𝜉hk):
+                              𝜓B, 𝜓B_rowDict, vkcurr, vi, 𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, τk, β, gamma):
         L𝜓k[k].clear()
         viableEdges = []
+        L𝜉k_total = []
         bestAugmentedEdge = None
-        bestProbability = sys.float_info.min
+        
         # For debugging
         chosen_e1 = None
         chosen_e2 = None
@@ -292,8 +285,7 @@ class CFMTSP:
             for 𝜓p in L𝜓k[k]: # For each p-th trajectory in L𝜓k
                 L𝜉k += list(𝜉B[𝜓p - 1][𝜉B[𝜓p - 1] != 0])
             
-            # Make sure we do not attempt to traverse edges that lead back to the starting vertex until the
-            # very end
+            # Make sure we do not attempt to traverse edges that lead back to the starting vertex until the very end
             if len(Lkunv[k]) > 2: # TODO: Check that this conditional value is correct
                 L𝜉k = list(filter(lambda 𝜉h: (edgeEndDict[𝜓B_rowDict[𝜉h_columnDict[𝜉h]]] - 1) != vi[k], L𝜉k))
             
@@ -305,46 +297,67 @@ class CFMTSP:
                 L𝜉k = list(filter(lambda 𝜉h: not self.__willCollide(𝜉h, k, speeds, top, tkimax, Livis, edgeStartDict, edgeEndDict,
                                                                       𝜓B, 𝜓B_rowDict, 𝜉h_columnDict, 𝜉h_rowDict), L𝜉k))
             
-            if not L𝜉k:
-                L𝜓k[k].clear()
-                break # No viable augmented edges
+            L𝜉k_total += L𝜉k
+        # END for edge in viableEdges:
             
-            # Select augmented edge with highest probability
-            𝜉h_candidate = self.__selectAugmentedEdge(L𝜉k, Pr𝜉hk[k], 𝜉h_rowDict, 𝜉h_columnDict)
+        if not L𝜉k_total:
+            L𝜓k[k].clear()
+            return None # No viable augmented edges
             
-            i = 𝜉h_rowDict[𝜉h_candidate]
-            j = 𝜉h_columnDict[𝜉h_candidate]
-            if Pr𝜉hk[k][i - 1][j - 1] > bestProbability:
-                bestAugmentedEdge = 𝜉h_candidate
-                bestProbability = Pr𝜉hk[k][i - 1][j - 1]
-                # For debugging
-                chosen_e1 = 𝜓B_rowDict[𝜉h_rowDict[𝜉h_candidate]]
-                chosen_e2 = 𝜓B_rowDict[𝜉h_columnDict[𝜉h_candidate]]
+        # Select augmented edge with highest probability
+        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict,
+                                                       𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
+        # For debugging
+        chosen_e1 = 𝜓B_rowDict[𝜉h_rowDict[bestAugmentedEdge]]
+        chosen_e2 = 𝜓B_rowDict[𝜉h_columnDict[bestAugmentedEdge]]
         
         return bestAugmentedEdge
     
     """
-    Selects augmented edge with highest probability weight
+    Selects augmented edge with highest probability weight, , via equation (11) of CFMTSP paper
     
     @name __selectAugmentedEdge
     @param {array} L𝜉k list of augmented edges
-    @param {ndarray} Pr𝜉hk augmented edge probability matrix
-    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in Pr𝜉hk
-    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in Pr𝜉hk
+    @param {ndarray} τ augmented-edge pheromone matrix
+    @param {array} speeds list of available speed selections for vehicle
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @param {number} β variable for determining strength of 𝜂 factor in probability formula
+    @param {number} gamma variable for determining strength of pheromone factor in probability formula
     @returns {number} augmented edge index
     """
     @classmethod
-    def __selectAugmentedEdge(self, L𝜉k, Pr𝜉hk, 𝜉h_rowDict, 𝜉h_columnDict):
-        𝜉h_select = 0
+    def __selectAugmentedEdge(self, L𝜉k, τ, speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict,
+                              𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma):
+        𝜉h_select = None
         highestProb = sys.float_info.min
         
+        # First calculate the sum of ALLOWED neighbor augmented edge choices
+        Σneighbors = 0.0
         for 𝜉h in L𝜉k:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
-            if Pr𝜉hk[i - 1][j - 1] > highestProb:
+            # We set 𝜂 to be the multiplicative inverse of the edge travel time
+            𝜂_hi = 1/self.__getEdgeTravelTime(speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+            τ_hi = τ[i - 1][j - 1]
+            Σneighbors += (𝜂_hi**β) * (τ_hi**gamma)
+        
+        # Finally determine candidate edge with best probability of being chosen among neighbor edges
+        for 𝜉h in L𝜉k:
+            i = 𝜉h_rowDict[𝜉h]
+            j = 𝜉h_columnDict[𝜉h]
+            # We set 𝜂 to be the multiplicative inverse of the edge travel time
+            𝜂_h = 1/self.__getEdgeTravelTime(speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+            τ_h = τ[i - 1][j - 1]
+            Pr𝜉h = ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
+            if Pr𝜉h > highestProb:
                 𝜉h_select = 𝜉h
-                highestProb = Pr𝜉hk[i - 1][j - 1]
-            
+                highestProb = Pr𝜉h
+        
         return 𝜉h_select
     
     """
@@ -513,41 +526,6 @@ class CFMTSP:
         return τ
     
     """
-    Initialize augmented edge selection probability matrix
-    
-    @name __createPr𝜉hMatrix
-    @param {ndarray} 𝜉B augmented edge adjacency matrix
-    @param {ndarray} τ pheromone matrix
-    @param {array} speeds list of available speed selections for vehicle
-    @param {ndarray} 𝜓B trajectory adjacency matrix
-    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
-    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
-    @param {dictionary} 𝜓i_neighbors sub-trajectory neighbor look-up table
-    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
-    @param {dictionary} edgeEndDict look-up table of end nodes for edges
-    @param {dictionary} edgeStartDict look-up table of start nodes for edges
-    @param {number} β variable for determining strength of 𝜂 factor in probability formula
-    @param {number} gamma variable for determining strength of pheromone factor in probability formula
-    @returns {ndarray} augmented edge slection probability matrix
-    """
-    @classmethod
-    def __createPr𝜉hMatrix(self, 𝜉B, τ, speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
-                          𝜓B_rowDict, edgeEndDict, edgeStartDict, β=1, gamma=1):
-        if 𝜉B is None:
-            raise IndexError("Augmented edge adjacency matrix is empty!")
-        if τ is None:
-            raise IndexError("Pheromone adjacency matrix is empty!")
-        
-        Pr𝜉h = 𝜉B.copy() # make deep copy
-        Pr𝜉h = Pr𝜉h.astype('float64') # Change to floating precision
-        calculateProbabilities = lambda 𝜉h: self.__Pr𝜉h(𝜉h, τ, speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
-                                                          𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
-         # calculate probabilities only for existing edges
-        Pr𝜉h[Pr𝜉h != 0.0] = np.array(list(map(calculateProbabilities, 𝜉B[𝜉B != 0])))
-        
-        return Pr𝜉h
-    
-    """
     Adds phermone along augmented route of pheromone matrix
     
     @name __calculatePheromoneTrailsAmount
@@ -588,7 +566,7 @@ class CFMTSP:
     @param {number} evaporationRate evaporation rate of pheromone along agumented edge
     """
     @classmethod
-    def __reducePheromoneTrailAmount(self, k, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate=0.01):
+    def __reducePheromoneTrailAmount(self, k, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate):
         for 𝜉h in L𝜉sel[k]:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
@@ -734,43 +712,6 @@ class CFMTSP:
             totalTravelTime += self.__getEdgeTravelTime(speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
         
         return totalTravelTime
-    
-    """
-    Calculate augmented edge selection probability, via equation (11) of CFMTSP paper
-    
-    @name __Pr𝜉h
-    @param {number} 𝜉h edge selection from augmented edge matrix 𝜉B
-    @param {ndarray} τ pheromone matrix
-    @param {array} speeds list of available speed selections for vehicle
-    @param {ndarray} 𝜓B trajectory adjacency matrix
-    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
-    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
-    @param {dictionary} 𝜓i_neighbors sub-trajectory neighbor look-up table
-    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
-    @param {dictionary} edgeEndDict look-up table of end nodes for edges
-    @param {dictionary} edgeStartDict look-up table of start nodes for edges
-    @param {number} β variable for determining strength of 𝜂 factor in probability formula
-    @param {number} gamma variable for determining strength of pheromone factor in probability formula
-    @returns {number} probability of ant selecting augmented edge 𝜉h
-    """
-    @classmethod
-    def __Pr𝜉h(self, 𝜉h, τ, speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors,
-                               𝜓B_rowDict, edgeEndDict, edgeStartDict, β=1, gamma=1):
-        i = 𝜉h_rowDict[𝜉h]
-        j = 𝜉h_columnDict[𝜉h]
-        Σneighbors = 0.0
-        
-        for neighbor𝜓 in 𝜓i_neighbors[i]:
-            # We set 𝜂 to be the multiplicative inverse of the edge travel time
-            𝜂_hi = 1/self.__getEdgeTravelTime(speeds, 𝜓B, i, neighbor𝜓, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
-            τ_hi = τ[i - 1][neighbor𝜓 - 1]
-            Σneighbors += (𝜂_hi**β) * (τ_hi**gamma)
-        
-        # We set 𝜂 to be the multiplicative inverse of the edge travel time
-        𝜂_h = 1/self.__getEdgeTravelTime(speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
-        τ_h = τ[i - 1][j - 1]
-        
-        return ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
 
 
 class ImageToGPSConverter:
