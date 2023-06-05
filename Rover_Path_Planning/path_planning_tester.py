@@ -19,7 +19,7 @@ def main():
         pixelCoord, image_width, image_height, droneCoord, altitude, droneFOV, compassHeading)
     print("GPS Coordinates: " + str(gpsCoordinate) + "\n")
     
-    # Simulate rover patrol path planning
+    # Simulate rover patrol path planning, Case 1
     nodes = [
         [150.0, -125.0], # NODE 0
         [-150.0, 50.0],  # NODE 1
@@ -73,15 +73,18 @@ def main():
     roverPatrolPathPlanner.addUndirectedEdge(9, 5, math.dist(nodes[9], nodes[5]))
     roverPatrolPathPlanner.addUndirectedEdge(9, 7, math.dist(nodes[9], nodes[7]))
     
+    print("**********************")
+    print("* SIMULATION CASE 1: *")
+    print("**********************")
+    
     selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0)
+    
     if selectedVertices is None:
-        print("No solution found.")
+        print("\nNo solution found.")
     else:
         for k in range(len(selectedVertices)):
-            print("\nPath for rover " + str(k) + ":")
-            print(selectedVertices[k])
-            print("Path speeds for rover " + str(k) + ":")
-            print(selectedSpeeds[k])
+            print("\nPath for rover " + str(k) + ": " + str(selectedVertices[k]))
+            print("Path speeds for rover " + str(k) + ": " + str(selectedSpeeds[k]))
 
 if __name__ == "__main__":
     main()

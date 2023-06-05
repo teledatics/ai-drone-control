@@ -127,10 +127,11 @@ class CFMTSP:
         # Important note: CFMTSP paper suggests using acceleration as the weight factor for augmented edges but
         # we use the edge travel time instead to accommodate non-uniform acceleration (if used)
         
-        # If Nm is not specified, set to number of graph vertices by default, based on ACO advice of having at least
-        # as many ants as there are vertices
+        # If Nm is not specified, set to number of graph vertices, plus rovers, by default, based on ACO advice of having at least
+        # as many ants as there are vertices. NOTE: this advice generally applies to single traveling salesman problem; may be
+        # slightly different for this case
         if Nm < 1:
-            Nm = 𝜉B.shape[0]
+            Nm = 𝜉B.shape[0] + Nu
             print("Nm value not specified, defaulting to " + str(Nm))
         
         τk = []
@@ -211,6 +212,11 @@ class CFMTSP:
                     𝜓i = 𝜉h_rowDict[𝜉h]
                     selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓i]] - 1) # Set to 0-based index
                     selectedSpeeds[k].append(speeds[(𝜓i - 1) % 𝜓B.shape[1]])
+                # Append the final vertex and speed which should be the origin
+                𝜉h = 𝜓kbest[k][-1]
+                𝜓j = 𝜉h_columnDict[𝜉h]
+                selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓j]] - 1) # Set to 0-based index
+                selectedSpeeds[k].append(speeds[(𝜓j - 1) % 𝜓B.shape[1]])
         
         return selectedVertices, selectedSpeeds
     
