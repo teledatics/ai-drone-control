@@ -26,7 +26,7 @@
 # - Modify CFMTSP solution to accomodate NON-uniform acceleration
 # - Modify CFMTSP solution to account for speed limits needed to accomodate sharp turns; until then, keep max speed low
 # - Modify CFMTSP solution to predict dynamic top value at each vertex depending on velocities and turn angle
-# - Add matrix to cache augmented graph edge weights for CFMTSP solution
+# - Consider changing matrix data structures to adjacency lists instead of Numpy ndarrays
 # - Test and verify pixel to GPS coordinate converter
 #
 # @section author_path_planning Author(s)
@@ -121,8 +121,9 @@ class CFMTSP:
         
         eB, edgeEndDict, edgeStartDict, numEdges = self.__createEdgeMatrix()
         𝜓B, 𝜓B_rowDict = self.__createTrajectoryAdjacencyMatrix(numEdges, len(speeds))
-        𝜉B, 𝜉h_count, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict,
-                                                                                                        edgeEndDict, edgeStartDict)
+        𝜉B, _, 𝜉h_rowDict, 𝜉h_columnDict, _ = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict,
+                                                                                           edgeEndDict, edgeStartDict)
+        𝜂 = self.__createAugmentedEdgeWeightMatrix(𝜉B, speeds, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
         
         # Important note: CFMTSP paper suggests using acceleration as the weight factor for augmented edges but
         # we use the edge travel time instead to accommodate non-uniform acceleration (if used)
@@ -162,7 +163,7 @@ class CFMTSP:
                     
                     nextAugmentedEdge = self.__chooseAugmentedEdge(k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel,
                                                                    eB, edgeStartDict, edgeEndDict, 𝜓B, 𝜓B_rowDict, vkcurr, vi,
-                                                                   𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, τk, β, gamma)
+                                                                   𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma)
                     if nextAugmentedEdge:
                         Lk𝜉sel[k].append(nextAugmentedEdge)
                         
@@ -247,14 +248,15 @@ class CFMTSP:
     @param {ndarray} 𝜉B augmented-edge adjacency matrix
     @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
     @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
+    @param {ndarray} 𝜂 augmented edge weight matrix
+    @param {ndarray} τk augmented-edge pheromone matrix
     @param {number} β exponential factor for controlling amount of weight edge travel times have in edge selection
     @param {number} gamma exponential factor for controlling amount of weight ant pheromone levels have in edge selection
-    @param {ndarray} τk augmented-edge pheromone matrix
     @returns {number} augmented edge index
     """
     @classmethod
     def __chooseAugmentedEdge(self, k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel, eB, edgeStartDict, edgeEndDict,
-                              𝜓B, 𝜓B_rowDict, vkcurr, vi, 𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, τk, β, gamma):
+                              𝜓B, 𝜓B_rowDict, vkcurr, vi, 𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma):
         L𝜓k[k].clear()
         viableEdges = []
         L𝜉k_total = []
@@ -315,8 +317,8 @@ class CFMTSP:
             return None # No viable augmented edges
             
         # Select augmented edge with highest probability
-        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict,
-                                                       𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma)
+        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma)
+        
         # For debugging
         chosen_e1 = 𝜓B_rowDict[𝜉h_rowDict[bestAugmentedEdge]]
         chosen_e2 = 𝜓B_rowDict[𝜉h_columnDict[bestAugmentedEdge]]
@@ -329,20 +331,15 @@ class CFMTSP:
     @name __selectAugmentedEdge
     @param {array} L𝜉k list of augmented edges
     @param {ndarray} τ augmented-edge pheromone matrix
-    @param {array} speeds list of available speed selections for vehicle
-    @param {ndarray} 𝜓B trajectory adjacency matrix
     @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
     @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
-    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
-    @param {dictionary} edgeEndDict look-up table of end nodes for edges
-    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @param {ndarray} 𝜂 augmented edge weight matrix
     @param {number} β variable for determining strength of 𝜂 factor in probability formula
     @param {number} gamma variable for determining strength of pheromone factor in probability formula
     @returns {number} augmented edge index
     """
     @classmethod
-    def __selectAugmentedEdge(self, L𝜉k, τ, speeds, 𝜓B, 𝜉h_rowDict, 𝜉h_columnDict,
-                              𝜓B_rowDict, edgeEndDict, edgeStartDict, β, gamma):
+    def __selectAugmentedEdge(self, L𝜉k, τ, 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma):
         𝜉h_select = None
         highestProb = sys.float_info.min
         
@@ -351,8 +348,7 @@ class CFMTSP:
         for 𝜉h in L𝜉k:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
-            # We set 𝜂 to be the multiplicative inverse of the edge travel time
-            𝜂_hi = 1/self.__getEdgeTravelTime(speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+            𝜂_hi = 𝜂[i - 1][j - 1]
             τ_hi = τ[i - 1][j - 1]
             Σneighbors += (𝜂_hi**β) * (τ_hi**gamma)
         
@@ -360,8 +356,7 @@ class CFMTSP:
         for 𝜉h in L𝜉k:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
-            # We set 𝜂 to be the multiplicative inverse of the edge travel time
-            𝜂_h = 1/self.__getEdgeTravelTime(speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+            𝜂_h = 𝜂[i - 1][j - 1]
             τ_h = τ[i - 1][j - 1]
             Pr𝜉h = ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
             if Pr𝜉h > highestProb:
@@ -415,13 +410,12 @@ class CFMTSP:
         q = 0
         eB = eB.astype(type(q)) # change to int type
         
-        for i in range(eB.shape[0]): # rows
-            for j in range(eB.shape[1]): # columns
-                if (i != j) and (eB[i][j] != 0):
-                    q += 1
-                    eB[i][j] = q
-                    edgeEndDict[q] = j + 1
-                    edgeStartDict[q] = i + 1
+        for index, _ in np.ndenumerate(eB):
+            if (index[0] != index[1]) and (eB[index[0]][index[1]] != 0):
+                q += 1
+                eB[index[0]][index[1]] = q
+                edgeEndDict[q] = index[1] + 1
+                edgeStartDict[q] = index[0] + 1
                     
         return eB, edgeEndDict, edgeStartDict, q
     
@@ -460,11 +454,10 @@ class CFMTSP:
         𝜓B = 𝜓B.astype('int') # change to int type
         𝜓B_rowDict = {}
         
-        for i in range(𝜓B.shape[0]): # rows
-            for j in range(𝜓B.shape[1]): # columns
-                𝜓p = i*numSpeeds + (j + 1)
-                𝜓B[i][j] = 𝜓p
-                𝜓B_rowDict[𝜓p] = i + 1
+        for index, 𝜓p in np.ndenumerate(𝜓B):
+            𝜓p = index[0]*numSpeeds + (index[1] + 1)
+            𝜓B[index[0]][index[1]] = 𝜓p
+            𝜓B_rowDict[𝜓p] = index[0] + 1
         
         return 𝜓B, 𝜓B_rowDict
     
@@ -518,10 +511,37 @@ class CFMTSP:
         return 𝜉B, 𝜉h, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors
     
     """
+    Creates weight matrix associated with augmented edge adjacency matrix
+    
+    @name __createAugmentedEdgeWeightMatrix
+    @param {ndarray} 𝜉B augmented edge adjacency matrix
+    @param {array} speeds list of available speed selections for vehicle
+    @param {ndarray} 𝜓B trajectory adjacency matrix
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @returns {ndarray} augmented edge weight matrix
+    """
+    @classmethod
+    def __createAugmentedEdgeWeightMatrix(self, 𝜉B, speeds, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+        if 𝜉B is None:
+            raise IndexError("Augmented edge adjacency matrix is empty!")
+        
+        𝜂 = 𝜉B.copy() # make deep copy
+        𝜂 = 𝜂.astype('float64') # Change to floating precision
+        
+        for index, 𝜉h in np.ndenumerate(𝜉B):
+            if 𝜉h != 0:
+                # We set 𝜂 to be the multiplicative inverse of the edge travel time
+                𝜂[index[0]][index[1]] = 1/self.__getEdgeTravelTime(speeds, 𝜓B, index[0] + 1, index[1] + 1, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+        
+        return 𝜂
+    
+    """
     Initialize pheromone adjacency matrix edges with default value
     
     @name __createPheromoneAdjacencyMatrix
-    @param {ndarray} augmented edge adjacency matrix
+    @param {ndarray} 𝜉B augmented edge adjacency matrix
     @returns {ndarray} pheromone adjacency matrix
     """
     @classmethod
@@ -561,8 +581,8 @@ class CFMTSP:
             
             # Mutable object
             τ[k][i - 1][j - 1] += 1/totalPathTime # Single ant of single species so we don't need to worry
-                                               # about including delta tau of other ants in 1 iteration
-                                               # TODO: Verify this is true
+                                                  # about including delta tau of other ants in 1 iteration
+                                                  # TODO: Verify this is true
     
     """
     Reduces phermone along augmented route of pheromone matrix
