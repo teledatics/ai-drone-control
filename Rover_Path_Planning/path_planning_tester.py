@@ -17,8 +17,7 @@ def main():
 
     gpsCoordinate = ImageToGPSConverter.getPixelGPSCoordinate(
         pixelCoord, image_width, image_height, droneCoord, altitude, droneFOV, compassHeading)
-    for idx in gpsCoordinate:
-        print(idx)
+    print("GPS Coordinates: " + str(gpsCoordinate) + "\n")
     
     # Simulate rover patrol path planning
     nodes = [
@@ -36,8 +35,6 @@ def main():
     numNodes = len(nodes)
     speeds = [0.1, 0.5, 1.0, 1.5]
     vi = [4, 1, 3] # 3 Rovers
-    # NOTE: It has been suggested to have at least as many ants as there are vertices
-    Nm = 150 # Ants/Iterations
     
     roverPatrolPathPlanner = CFMTSP()
     roverPatrolPathPlanner.initAdjacencyMatrix(numNodes)
@@ -76,7 +73,7 @@ def main():
     roverPatrolPathPlanner.addUndirectedEdge(9, 5, math.dist(nodes[9], nodes[5]))
     roverPatrolPathPlanner.addUndirectedEdge(9, 7, math.dist(nodes[9], nodes[7]))
     
-    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm, β=1, gamma=1, evaporationRate=0.05, top=5.0)
+    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0)
     if selectedVertices is None:
         print("No solution found.")
     else:

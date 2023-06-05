@@ -25,6 +25,7 @@
 # - Modify path selection to use random number generator instead of always picking only highest weight edge
 # - Modify CFMTSP solution to accomodate NON-uniform acceleration
 # - Modify CFMTSP solution to account for speed limits needed to accomodate sharp turns; until then, keep max speed low
+# - Modify CFMTSP solution to predict dynamic top value at each vertex depending on velocities and turn angle
 # - Add matrix to cache augmented graph edge weights for CFMTSP solution
 # - Test and verify pixel to GPS coordinate converter
 #
@@ -103,7 +104,7 @@ class CFMTSP:
              {ndarray} selected [initial] velocities, per graph vertex, or None if no viable solution found
     """
     @classmethod
-    def calculateRoverPaths(self, vi, speeds, Nm, β=1, gamma=1, evaporationRate=0.01, top=5.0):
+    def calculateRoverPaths(self, vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.01, top=5.0):
         if self.adjMatrix is None:
             raise IndexError("Adjacency matrix is uninitialized!")
         if not vi:
@@ -123,11 +124,14 @@ class CFMTSP:
         𝜉B, 𝜉h_count, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓i_neighbors = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict,
                                                                                                         edgeEndDict, edgeStartDict)
         
-        # For debug purposes
-        print("Shape of 𝜉B matrix is " + str(𝜉B.shape[0]) + " by " + str(𝜉B.shape[1]))
-        
         # Important note: CFMTSP paper suggests using acceleration as the weight factor for augmented edges but
         # we use the edge travel time instead to accommodate non-uniform acceleration (if used)
+        
+        # If Nm is not specified, set to number of graph vertices by default, based on ACO advice of having at least
+        # as many ants as there are vertices
+        if Nm < 1:
+            Nm = 𝜉B.shape[0]
+            print("Nm value not specified, defaulting to " + str(Nm))
         
         τk = []
         𝜓kbest = None
