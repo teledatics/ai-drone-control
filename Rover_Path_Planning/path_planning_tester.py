@@ -19,72 +19,182 @@ def main():
         pixelCoord, image_width, image_height, droneCoord, altitude, droneFOV, compassHeading)
     print("GPS Coordinates: " + str(gpsCoordinate) + "\n")
     
+    NODE_1 = 0
+    NODE_2 = 1
+    NODE_3 = 2
+    NODE_4 = 3
+    NODE_5 = 4
+    NODE_6 = 5
+    NODE_7 = 6
+    NODE_8 = 7
+    NODE_9 = 8
+    NODE_10 = 9
+    NODE_11 = 10
+    NODE_12 = 11
+    NODE_13 = 12
+    NODE_14 = 13
+    NODE_15 = 14
+    
     # Simulate rover patrol path planning, Case 1
     nodes = [
-        [150.0, -125.0], # NODE 0
         [-150.0, 50.0],  # NODE 1
         [110.0, -25.0],  # NODE 2
         [60.0, 150.0],   # NODE 3
         [-50.0, -100.0], # NODE 4
         [0.0, 0.0],      # NODE 5
-        [-10.0, -10.0],  # NODE 6
+        [10.0, -10.0],   # NODE 6
         [75.0, -75.0],   # NODE 7
-        [-110.0, 160.0], # NODE 8
-        [-10.0, -40.0]   # NODE 9
+        [-90.0, 160.0],  # NODE 8
+        [-10.0, -40.0],  # NODE 9
+        [150.0, -125.0]  # NODE 10
     ]
     numNodes = len(nodes)
     speeds = [0.1, 0.5, 1.0, 1.5]
-    vi = [4, 1, 3] # 3 Rovers
+    vi = [NODE_4, NODE_1, NODE_3] # 3 Rovers
     
     roverPatrolPathPlanner = CFMTSP()
     roverPatrolPathPlanner.initAdjacencyMatrix(numNodes)
     
     # Add edges with euclidean distances as weights
-    roverPatrolPathPlanner.addUndirectedEdge(0, 2, math.dist(nodes[0], nodes[2])) 
-    roverPatrolPathPlanner.addUndirectedEdge(0, 4, math.dist(nodes[0], nodes[4]))
-    roverPatrolPathPlanner.addUndirectedEdge(1, 5, math.dist(nodes[1], nodes[5]))
-    roverPatrolPathPlanner.addUndirectedEdge(1, 8, math.dist(nodes[1], nodes[8]))
-    roverPatrolPathPlanner.addUndirectedEdge(1, 9, math.dist(nodes[1], nodes[9]))
-    roverPatrolPathPlanner.addUndirectedEdge(2, 0, math.dist(nodes[2], nodes[0]))
-    roverPatrolPathPlanner.addUndirectedEdge(2, 3, math.dist(nodes[2], nodes[3]))
-    roverPatrolPathPlanner.addUndirectedEdge(2, 6, math.dist(nodes[2], nodes[6]))
-    roverPatrolPathPlanner.addUndirectedEdge(2, 7, math.dist(nodes[2], nodes[7]))
-    roverPatrolPathPlanner.addUndirectedEdge(3, 2, math.dist(nodes[3], nodes[2]))
-    roverPatrolPathPlanner.addUndirectedEdge(3, 5, math.dist(nodes[3], nodes[5]))
-    roverPatrolPathPlanner.addUndirectedEdge(3, 8, math.dist(nodes[3], nodes[8]))
-    roverPatrolPathPlanner.addUndirectedEdge(4, 0, math.dist(nodes[4], nodes[0]))
-    roverPatrolPathPlanner.addUndirectedEdge(4, 9, math.dist(nodes[4], nodes[9]))
-    roverPatrolPathPlanner.addUndirectedEdge(5, 1, math.dist(nodes[5], nodes[1]))
-    roverPatrolPathPlanner.addUndirectedEdge(5, 3, math.dist(nodes[5], nodes[3]))
-    roverPatrolPathPlanner.addUndirectedEdge(5, 6, math.dist(nodes[5], nodes[6]))
-    roverPatrolPathPlanner.addUndirectedEdge(5, 8, math.dist(nodes[5], nodes[8]))
-    roverPatrolPathPlanner.addUndirectedEdge(5, 9, math.dist(nodes[5], nodes[9]))
-    roverPatrolPathPlanner.addUndirectedEdge(6, 2, math.dist(nodes[6], nodes[2]))
-    roverPatrolPathPlanner.addUndirectedEdge(6, 5, math.dist(nodes[6], nodes[5]))
-    roverPatrolPathPlanner.addUndirectedEdge(6, 7, math.dist(nodes[6], nodes[7]))
-    roverPatrolPathPlanner.addUndirectedEdge(7, 2, math.dist(nodes[7], nodes[2]))
-    roverPatrolPathPlanner.addUndirectedEdge(7, 6, math.dist(nodes[7], nodes[6]))
-    roverPatrolPathPlanner.addUndirectedEdge(7, 9, math.dist(nodes[7], nodes[9]))
-    roverPatrolPathPlanner.addUndirectedEdge(8, 1, math.dist(nodes[8], nodes[1]))
-    roverPatrolPathPlanner.addUndirectedEdge(8, 3, math.dist(nodes[8], nodes[3]))
-    roverPatrolPathPlanner.addUndirectedEdge(8, 5, math.dist(nodes[8], nodes[5]))
-    roverPatrolPathPlanner.addUndirectedEdge(9, 1, math.dist(nodes[9], nodes[1]))
-    roverPatrolPathPlanner.addUndirectedEdge(9, 4, math.dist(nodes[9], nodes[4]))
-    roverPatrolPathPlanner.addUndirectedEdge(9, 5, math.dist(nodes[9], nodes[5]))
-    roverPatrolPathPlanner.addUndirectedEdge(9, 7, math.dist(nodes[9], nodes[7]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_1,  NODE_5,  math.dist(nodes[NODE_1],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_1,  NODE_8,  math.dist(nodes[NODE_1],  nodes[NODE_8]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_1,  NODE_9,  math.dist(nodes[NODE_1],  nodes[NODE_9]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_3,  math.dist(nodes[NODE_2],  nodes[NODE_3]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_6,  math.dist(nodes[NODE_2],  nodes[NODE_6]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_7,  math.dist(nodes[NODE_2],  nodes[NODE_7]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_10, math.dist(nodes[NODE_2],  nodes[NODE_10]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_3,  NODE_2,  math.dist(nodes[NODE_3],  nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_3,  NODE_5,  math.dist(nodes[NODE_3],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_3,  NODE_8,  math.dist(nodes[NODE_3],  nodes[NODE_8]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_4,  NODE_9,  math.dist(nodes[NODE_4],  nodes[NODE_9]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_4,  NODE_10, math.dist(nodes[NODE_4],  nodes[NODE_10]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_1,  math.dist(nodes[NODE_5],  nodes[NODE_1]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_3,  math.dist(nodes[NODE_5],  nodes[NODE_3]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_6,  math.dist(nodes[NODE_5],  nodes[NODE_6]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_8,  math.dist(nodes[NODE_5],  nodes[NODE_8]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_9,  math.dist(nodes[NODE_5],  nodes[NODE_9]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_6,  NODE_2,  math.dist(nodes[NODE_6],  nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_6,  NODE_5,  math.dist(nodes[NODE_6],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_6,  NODE_7,  math.dist(nodes[NODE_6],  nodes[NODE_7]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_7,  NODE_2,  math.dist(nodes[NODE_7],  nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_7,  NODE_6,  math.dist(nodes[NODE_7],  nodes[NODE_6]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_7,  NODE_9,  math.dist(nodes[NODE_7],  nodes[NODE_9]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_8,  NODE_1,  math.dist(nodes[NODE_8],  nodes[NODE_1]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_8,  NODE_3,  math.dist(nodes[NODE_8],  nodes[NODE_3]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_8,  NODE_5,  math.dist(nodes[NODE_8],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_1,  math.dist(nodes[NODE_9],  nodes[NODE_1]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_4,  math.dist(nodes[NODE_9],  nodes[NODE_4]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_5,  math.dist(nodes[NODE_9],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_7,  math.dist(nodes[NODE_9],  nodes[NODE_7]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_10, NODE_2,  math.dist(nodes[NODE_10], nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_10, NODE_4,  math.dist(nodes[NODE_10], nodes[NODE_4]))
     
     print("**********************")
     print("* SIMULATION CASE 1: *")
-    print("**********************")
+    print("**********************\n")
     
     selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0)
     
     if selectedVertices is None:
-        print("\nNo solution found.")
+        print("No solution found.\n")
     else:
         for k in range(len(selectedVertices)):
-            print("\nPath for rover " + str(k) + ": " + str(selectedVertices[k]))
-            print("Path speeds for rover " + str(k) + ": " + str(selectedSpeeds[k]))
+            print("Path for rover " + str(k) + ": " + str(list(map(lambda i : i + 1, selectedVertices[k]))))
+            print("Path speeds for rover " + str(k) + ": " + str(selectedSpeeds[k]) + "\n")
+    
+    # Simulate rover patrol path planning, Case 2
+    nodes = [
+        [-150.0, 50.0],   # NODE 1
+        [110.0, -25.0],   # NODE 2
+        [60.0, 150.0],    # NODE 3
+        [-50.0, -100.0],  # NODE 4
+        [0.0, 0.0],       # NODE 5
+        [10.0, -10.0],    # NODE 6
+        [75.0, -75.0],    # NODE 7
+        [-90.0, 160.0],   # NODE 8
+        [-10.0, -40.0],   # NODE 9
+        [150.0, -125.0],  # NODE 10
+        [-150.0, -125.0], # NODE 11
+        [160.0, 60.0],    # NODE 12
+        [100.0, 125.0],   # NODE 13
+        [-100.0, 55.0],   # NODE 14
+        [0, -175.0]       # NODE 15
+    ]
+    numNodes = len(nodes)
+    speeds = [0.1, 0.5, 1.0, 1.5]
+    vi = [NODE_4, NODE_1, NODE_3] # 3 Rovers
+    
+    roverPatrolPathPlanner = CFMTSP()
+    roverPatrolPathPlanner.initAdjacencyMatrix(numNodes)
+    
+    # Add edges with euclidean distances as weights
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_1,  NODE_5,  math.dist(nodes[NODE_1],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_1,  NODE_8,  math.dist(nodes[NODE_1],  nodes[NODE_8]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_1,  NODE_9,  math.dist(nodes[NODE_1],  nodes[NODE_9]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_1,  NODE_11, math.dist(nodes[NODE_1],  nodes[NODE_11]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_1,  NODE_14, math.dist(nodes[NODE_1],  nodes[NODE_14]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_3,  math.dist(nodes[NODE_2],  nodes[NODE_3]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_6,  math.dist(nodes[NODE_2],  nodes[NODE_6]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_7,  math.dist(nodes[NODE_2],  nodes[NODE_7]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_10, math.dist(nodes[NODE_2],  nodes[NODE_10]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_2,  NODE_13, math.dist(nodes[NODE_2],  nodes[NODE_13]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_3,  NODE_2,  math.dist(nodes[NODE_3],  nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_3,  NODE_5,  math.dist(nodes[NODE_3],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_3,  NODE_8,  math.dist(nodes[NODE_3],  nodes[NODE_8]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_3,  NODE_13, math.dist(nodes[NODE_3],  nodes[NODE_13]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_4,  NODE_9,  math.dist(nodes[NODE_4],  nodes[NODE_9]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_4,  NODE_10, math.dist(nodes[NODE_4],  nodes[NODE_10]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_4,  NODE_11, math.dist(nodes[NODE_4],  nodes[NODE_11]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_4,  NODE_15, math.dist(nodes[NODE_4],  nodes[NODE_15]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_1,  math.dist(nodes[NODE_5],  nodes[NODE_1]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_3,  math.dist(nodes[NODE_5],  nodes[NODE_3]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_6,  math.dist(nodes[NODE_5],  nodes[NODE_6]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_8,  math.dist(nodes[NODE_5],  nodes[NODE_8]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_5,  NODE_9,  math.dist(nodes[NODE_5],  nodes[NODE_9]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_6,  NODE_2,  math.dist(nodes[NODE_6],  nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_6,  NODE_5,  math.dist(nodes[NODE_6],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_6,  NODE_7,  math.dist(nodes[NODE_6],  nodes[NODE_7]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_7,  NODE_2,  math.dist(nodes[NODE_7],  nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_7,  NODE_6,  math.dist(nodes[NODE_7],  nodes[NODE_6]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_7,  NODE_9,  math.dist(nodes[NODE_7],  nodes[NODE_9]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_8,  NODE_1,  math.dist(nodes[NODE_8],  nodes[NODE_1]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_8,  NODE_3,  math.dist(nodes[NODE_8],  nodes[NODE_3]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_8,  NODE_5,  math.dist(nodes[NODE_8],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_8,  NODE_14, math.dist(nodes[NODE_8],  nodes[NODE_14]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_1,  math.dist(nodes[NODE_9],  nodes[NODE_1]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_4,  math.dist(nodes[NODE_9],  nodes[NODE_4]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_5,  math.dist(nodes[NODE_9],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_7,  math.dist(nodes[NODE_9],  nodes[NODE_7]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_10, NODE_2,  math.dist(nodes[NODE_10], nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_10, NODE_4,  math.dist(nodes[NODE_10], nodes[NODE_4]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_10, NODE_12, math.dist(nodes[NODE_10], nodes[NODE_12]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_10, NODE_15, math.dist(nodes[NODE_10], nodes[NODE_15]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_11, NODE_1,  math.dist(nodes[NODE_11], nodes[NODE_1]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_11, NODE_4,  math.dist(nodes[NODE_11], nodes[NODE_4]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_11, NODE_15, math.dist(nodes[NODE_11], nodes[NODE_15]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_12, NODE_10, math.dist(nodes[NODE_12], nodes[NODE_10]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_12, NODE_13, math.dist(nodes[NODE_12], nodes[NODE_13]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_13, NODE_2,  math.dist(nodes[NODE_13], nodes[NODE_2]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_13, NODE_3,  math.dist(nodes[NODE_13], nodes[NODE_3]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_13, NODE_12, math.dist(nodes[NODE_13], nodes[NODE_12]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_14, NODE_1,  math.dist(nodes[NODE_14], nodes[NODE_1]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_14, NODE_8,  math.dist(nodes[NODE_14], nodes[NODE_8]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_15, NODE_4,  math.dist(nodes[NODE_15], nodes[NODE_4]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_15, NODE_10, math.dist(nodes[NODE_15], nodes[NODE_10]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_15, NODE_11, math.dist(nodes[NODE_15], nodes[NODE_11]))
+    
+    print("**********************")
+    print("* SIMULATION CASE 2: *")
+    print("**********************\n")
+    
+    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0)
+    
+    if selectedVertices is None:
+        print("No solution found.\n")
+    else:
+        for k in range(len(selectedVertices)):
+            print("Path for rover " + str(k) + ": " + str(list(map(lambda i : i + 1, selectedVertices[k]))))
+            print("Path speeds for rover " + str(k) + ": " + str(selectedSpeeds[k]) + "\n")
 
 if __name__ == "__main__":
     main()
