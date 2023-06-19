@@ -22,7 +22,6 @@
 #   - Access to deep copy operations
 #
 # @section todo_path_planning TODO
-# - Modify path selection to use random number generator instead of always picking only highest weight edge
 # - Modify CFMTSP solution to accomodate NON-uniform acceleration
 # - Modify CFMTSP solution to account for speed limits needed to accomodate sharp turns; until then, keep max speed low
 # - Modify CFMTSP solution to predict dynamic top value at each vertex depending on velocities and turn angle
