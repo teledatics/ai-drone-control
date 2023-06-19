@@ -100,11 +100,15 @@ class CFMTSP:
     @param {number} gamma exponential factor for controlling amount of weight ant pheromone levels have in edge selection
     @param {number} evaporationRate rate at which ant pheromones along graph edges diminish per iteration
     @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
+    @param {boolean} alwaysSelectHighestProb flag which determines if algorithm always chooses largest weighted edge
+                     or selects edge based on non-uniform distribution (i.e. Greedy & Quick vs. Slow & Optimal)
+    @param {number} convergenceLimit number of consecutive successful iterations before assuming solution convergence
     @returns {ndarray} selected graph vertex path, per rover, or None if no viable solution found
              {ndarray} selected [initial] velocities, per graph vertex, or None if no viable solution found
     """
     @classmethod
-    def calculateRoverPaths(self, vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.01, top=5.0):
+    def calculateRoverPaths(self, vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.01, top=5.0,
+                            alwaysSelectHighestProb=True, convergenceLimit = 20):
         if self.adjMatrix is None:
             raise IndexError("Adjacency matrix is uninitialized!")
         if not vi:
@@ -115,6 +119,8 @@ class CFMTSP:
             raise ValueError("Pheromone evaporation rate must be between 0 and 1")
         if top < 0.0:
             raise ValueError("Operational time (at nodes) cannot be less than zero")
+        if convergenceLimit < 1:
+            raise ValueError("Convergence count limit cannot be less than one")
         
         # Initialize variables
         Nu = len(vi)
@@ -128,11 +134,9 @@ class CFMTSP:
         # Important note: CFMTSP paper suggests using acceleration as the weight factor for augmented edges but
         # we use the edge travel time instead to accommodate non-uniform acceleration (if used)
         
-        # If Nm is not specified, set to number of graph vertices, plus rovers, by default, based on ACO advice of having at least
-        # as many ants as there are vertices. NOTE: this advice generally applies to single traveling salesman problem; may be
-        # slightly different for this case
+        # If Nm is not specified, choose arbitrarily large number of iterations
         if Nm < 1:
-            Nm = 𝜉B.shape[0] + Nu
+            Nm = 1000000
             print("Nm value not specified, defaulting to " + str(Nm))
         
         τk = []
@@ -140,6 +144,7 @@ class CFMTSP:
         tkbest = sys.float_info.max
         selectedVertices = None
         selectedSpeeds = None
+        convergenceCount = 0
         
         # Initialize pheromone matrices for each rover/ant "species"
         for k in range(Nu):
@@ -151,12 +156,11 @@ class CFMTSP:
             L𝜓k = [[] for _ in range(Nu)]
             Lk𝜉sel = [[] for _ in range(Nu)]
             Livis = [{} for _ in range(Nu)]
-            tkimax = [0] * Nu
+            tkimax = [0.0] * Nu
             
             for k in range(Nu): # For each k-th ant species
                 # For testing/debugging
-                # if k > 0:
-                #     print("k: " + str(k) + ", r = " + str(r))
+                print("k: " + str(k) + ", r = " + str(r))
                     
                 while len(Lkunv[k]) != 0:
                     
@@ -167,7 +171,7 @@ class CFMTSP:
                     
                     nextAugmentedEdge = self.__chooseAugmentedEdge(k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel,
                                                                    eB, edgeStartDict, edgeEndDict, 𝜓B, 𝜓B_rowDict, vkcurr, vi,
-                                                                   𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma)
+                                                                   𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma, alwaysSelectHighestProb)
                     if nextAugmentedEdge:
                         Lk𝜉sel[k].append(nextAugmentedEdge)
                         
@@ -185,6 +189,7 @@ class CFMTSP:
                     if not L𝜓k[k]:
                         # Reduce pheromones along chosen path
                         self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
+                        convergenceCount = 0 # Reset convergence counter
                         break # "goto"; there is no "goto" command so we have to mimic the ability via a series of breaks and continues
                     # "L𝜓k <- {}" line moved to top of while loop (inside __chooseAugmentedEdge()) to support double break
                     # logic equivalent of goto
@@ -205,6 +210,12 @@ class CFMTSP:
             if max_tkimax < tkbest:
                 tkbest = max_tkimax
                 𝜓kbest = copy.deepcopy(Lk𝜉sel)
+                convergenceCount = 0 # Reset convergence counter
+            
+            convergenceCount += 1
+            if convergenceCount >= convergenceLimit:
+                print("\nReached convergence!\n")
+                break
         # END for r in range(Nm)
         
         # Found a viable solution
@@ -256,11 +267,13 @@ class CFMTSP:
     @param {ndarray} τk augmented-edge pheromone matrix
     @param {number} β exponential factor for controlling amount of weight edge travel times have in edge selection
     @param {number} gamma exponential factor for controlling amount of weight ant pheromone levels have in edge selection
+    @param {boolean} alwaysSelectHighestProb flag which determines if algorithm always chooses largest weighted edge
+                     or selects edge based on non-uniform distribution
     @returns {number} augmented edge index
     """
     @classmethod
     def __chooseAugmentedEdge(self, k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel, eB, edgeStartDict, edgeEndDict,
-                              𝜓B, 𝜓B_rowDict, vkcurr, vi, 𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma):
+                              𝜓B, 𝜓B_rowDict, vkcurr, vi, 𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma, alwaysSelectHighestProb):
         L𝜓k[k].clear()
         viableEdges = []
         L𝜉k_total = []
@@ -302,7 +315,7 @@ class CFMTSP:
                 L𝜉k += list(𝜉B[𝜓p - 1][𝜉B[𝜓p - 1] != 0])
             
             # Make sure we do not attempt to traverse edges that lead back to the starting vertex until the very end
-            if len(Lkunv[k]) > 2: # TODO: Check that this conditional value is correct
+            if len(Lkunv[k]) > 2:
                 L𝜉k = list(filter(lambda 𝜉h: (edgeEndDict[𝜓B_rowDict[𝜉h_columnDict[𝜉h]]] - 1) != vi[k], L𝜉k))
             
             # Perform extra filtering iff the next [un-augmented] vertex is not the last one
@@ -321,7 +334,7 @@ class CFMTSP:
             return None # No viable augmented edges
             
         # Select augmented edge with highest probability
-        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb=False)
+        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb)
         
         # For debugging
         chosen_e1 = 𝜓B_rowDict[𝜉h_rowDict[bestAugmentedEdge]]
@@ -345,7 +358,7 @@ class CFMTSP:
     @returns {number} augmented edge index
     """
     @classmethod
-    def __selectAugmentedEdge(self, L𝜉k, τ, 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb=True):
+    def __selectAugmentedEdge(self, L𝜉k, τ, 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb):
         𝜉h_select = None
         
         # If there is only one choice available, just return it
