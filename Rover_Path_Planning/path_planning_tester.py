@@ -93,7 +93,7 @@ def main():
     print("* SIMULATION CASE 1: *")
     print("**********************\n")
     
-    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0)
+    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=3000, β=1, gamma=1, evaporationRate=0.4, top=5.0)
     
     if selectedVertices is None:
         print("No solution found.\n")
@@ -187,7 +187,7 @@ def main():
     print("* SIMULATION CASE 2: *")
     print("**********************\n")
     
-    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0)
+    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=8000, β=1, gamma=1, evaporationRate=0.4, top=5.0)
     
     if selectedVertices is None:
         print("No solution found.\n")

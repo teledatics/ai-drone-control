@@ -154,6 +154,10 @@ class CFMTSP:
             tkimax = [0] * Nu
             
             for k in range(Nu): # For each k-th ant species
+                # For testing/debugging
+                # if k > 0:
+                #     print("k: " + str(k) + ", r = " + str(r))
+                    
                 while len(Lkunv[k]) != 0:
                     
                     # CFMTSP paper pseudo-code ONLY selects first edge with no collision and then proceeds to process the augmented
@@ -187,14 +191,14 @@ class CFMTSP:
                 # END while len(Lkunv[k]) != 0
                 if not L𝜓k[k]:
                     break # Break out of "for k in range(Nu)" loop
+                # Increase pheromones along chosen path.
+                # Contrary to the description in the paper, it makes more sense to move the function here instead of
+                # after the "for k in range(Nu)" loop
+                self.__calculatePheromoneTrailsAmount(k, Lk𝜉sel, τk, speeds, 𝜓B, 𝜉h_rowDict,
+                                                      𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
             # END for k in range(Nu)
             if not L𝜓k[k]:
                 continue # Move to top of "for r in range(Nm)" loop
-            
-            for k in range(Nu): # for all k ε {1,2,...,Nu}
-                # Increase pheromones along chosen path
-                self.__calculatePheromoneTrailsAmount(k, Lk𝜉sel, τk, speeds, 𝜓B, 𝜉h_rowDict,
-                                                      𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
             
             # Save the iteration with the minimal worst-case time
             max_tkimax = max(tkimax)
@@ -317,7 +321,7 @@ class CFMTSP:
             return None # No viable augmented edges
             
         # Select augmented edge with highest probability
-        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma)
+        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb=False)
         
         # For debugging
         chosen_e1 = 𝜓B_rowDict[𝜉h_rowDict[bestAugmentedEdge]]
@@ -336,12 +340,17 @@ class CFMTSP:
     @param {ndarray} 𝜂 augmented edge weight matrix
     @param {number} β variable for determining strength of 𝜂 factor in probability formula
     @param {number} gamma variable for determining strength of pheromone factor in probability formula
+    @param {boolean} alwaysSelectHighestProb flag which determines if algorithm always chooses largest weighted edge
+                     or selects edge based on non-uniform distribution
     @returns {number} augmented edge index
     """
     @classmethod
-    def __selectAugmentedEdge(self, L𝜉k, τ, 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma):
+    def __selectAugmentedEdge(self, L𝜉k, τ, 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb=True):
         𝜉h_select = None
-        highestProb = sys.float_info.min
+        
+        # If there is only one choice available, just return it
+        if len(L𝜉k) == 1:
+            return L𝜉k[0]
         
         # First calculate the sum of ALLOWED neighbor augmented edge choices
         Σneighbors = 0.0
@@ -353,15 +362,30 @@ class CFMTSP:
             Σneighbors += (𝜂_hi**β) * (τ_hi**gamma)
         
         # Finally determine candidate edge with best probability of being chosen among neighbor edges
-        for 𝜉h in L𝜉k:
-            i = 𝜉h_rowDict[𝜉h]
-            j = 𝜉h_columnDict[𝜉h]
-            𝜂_h = 𝜂[i - 1][j - 1]
-            τ_h = τ[i - 1][j - 1]
-            Pr𝜉h = ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
-            if Pr𝜉h > highestProb:
-                𝜉h_select = 𝜉h
-                highestProb = Pr𝜉h
+        # METHOD 1: Always select highest weighted augmented edge
+        if alwaysSelectHighestProb:
+            highestProb = 0.0
+            for 𝜉h in L𝜉k:
+                i = 𝜉h_rowDict[𝜉h]
+                j = 𝜉h_columnDict[𝜉h]
+                𝜂_h = 𝜂[i - 1][j - 1]
+                τ_h = τ[i - 1][j - 1]
+                Pr𝜉h = ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
+                if Pr𝜉h > highestProb:
+                    𝜉h_select = 𝜉h
+                    highestProb = Pr𝜉h
+        # METHOD 2: Select augmented edge based on non-uniform distribution
+        else:
+            probabilities = []
+            for 𝜉h in L𝜉k:
+                i = 𝜉h_rowDict[𝜉h]
+                j = 𝜉h_columnDict[𝜉h]
+                𝜂_h = 𝜂[i - 1][j - 1]
+                τ_h = τ[i - 1][j - 1]
+                Pr𝜉h = ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
+                probabilities.append(Pr𝜉h)
+            
+            𝜉h_select = np.random.choice(L𝜉k, p=probabilities)
         
         return 𝜉h_select
     
@@ -551,7 +575,7 @@ class CFMTSP:
         
         τ = 𝜉B.copy() # make deep copy
         τ = τ.astype('float64') # Change to floating precision
-        τ[τ != 0.0] = 0.5 # initialize non-empty edges
+        τ[τ != 0.0] = 1.0 # initialize non-empty edges
         
         return τ
     
@@ -602,7 +626,7 @@ class CFMTSP:
             j = 𝜉h_columnDict[𝜉h]
             
             # Mutable object
-            τ[k][i - 1][j - 1] *= (1 - evaporationRate)
+            τ[k][i - 1][j - 1] *= (1.0 - evaporationRate)
     
     """
     Calculate uniform acceleration along augmented edge
