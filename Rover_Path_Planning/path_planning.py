@@ -43,6 +43,153 @@ import numpy as np
 import sys
 import copy
 
+class ShortestPaths:
+    """
+    Shortest paths class.
+
+    Defines class which finds and stores shortest path information between all vertices on a graph.
+    """
+    
+    ##################
+    # Public Methods #
+    ##################
+    
+    """
+    Constructor
+    
+    @name __init__
+    """
+    def __init__(self):
+        self.adjMatrix = None
+        self.distMatrix = None
+        self.predecessorMatrix = None
+    
+    """
+    Initialize adjacency square matrix with input number of nodes
+    
+    @name initAdjacencyMatrix
+    @param {number} numNodes number of nodes in adjacency matrix
+    """
+    @classmethod
+    def initAdjacencyMatrix(self, numNodes: int):
+        if (numNodes <= 0):
+            raise ValueError("Number of nodes must be greater than zero")
+        self.adjMatrix = np.full((numNodes, numNodes), sys.float_info.max, dtype=np.float64)
+        np.fill_diagonal(self.adjMatrix, 0.0)
+    
+    """
+    Checks if adjaceny matrix is initialized or not
+    
+    @name isAdjacencyMatrixEmpty
+    @returns {boolean} True if adjacency matrix is null; False otherwise
+    """
+    @classmethod
+    def isAdjacencyMatrixEmpty(self):
+        return self.adjMatrix is None
+    
+    """
+    Add undirected edge between nodes
+    
+    @name addUndirectedEdge
+    @param {number} node1 start node in adjacency matrix
+    @param {number} node2 end node in adjacency matrix
+    @param {number} weight node1 <-> node2 edge weight
+    """
+    @classmethod
+    def addUndirectedEdge(self, node1: int, node2: int, weight: np.float64):
+        # An undirected edge is just a bi-directional edge between nodes
+        self.__addDirectedEdge(node1, node2, weight)
+        self.__addDirectedEdge(node2, node1, weight)
+    
+    """
+    Compute shortest paths between all vertices
+    
+    @name computeShortestPaths
+    """
+    @classmethod
+    def computeShortestPaths(self):
+        if self.adjMatrix is None:
+            raise IndexError("Adjacency matrix is uninitialized!")
+        
+        # Floyd Warshall Algorithm
+        
+        # Initialize distance and predecessor matrices
+        self.distMatrix = self.adjMatrix.copy() # Deep copy
+        self.predecessorMatrix = np.full((self.adjMatrix.shape[0], self.adjMatrix.shape[1]), 0, dtype=int)
+        for index, _ in np.ndenumerate(self.predecessorMatrix):
+            self.predecessorMatrix[index[0]][index[1]] = index[0]
+        
+        # Add vertices individually
+        for k in range(self.distMatrix.shape[0]):
+            for i in range(self.distMatrix.shape[0]):
+                for j in range(self.distMatrix.shape[0]):
+                    if ((self.distMatrix[i][k] != sys.float_info.max) and # Help avoid arithmetic overflow
+                        (self.distMatrix[k][j] != sys.float_info.max) and
+                        (self.distMatrix[i][k] + self.distMatrix[k][j] < self.distMatrix[i][j])):
+                        self.distMatrix[i][j] = self.distMatrix[i][k] + self.distMatrix[k][j]
+                        self.predecessorMatrix[i][j] = self.predecessorMatrix[k][j]
+    
+    """
+    Retrieves reference to computed distance matrix
+    
+    @name getDistanceMatrix
+    @returns {ndarray} reference to distance matrix
+    """
+    @classmethod
+    def getDistanceMatrix(self):
+        return self.distMatrix
+    
+    """
+    Retrieve shortest path between 2 vertices
+    
+    @name getShortestPath
+    @param {number} node1 start vertex
+    @param {number} node2 end vertex
+    @returns {array} list of vertices in shortest path
+    """
+    @classmethod
+    def getShortestPath(self, node1: int, node2: int) -> list[int]:
+        if self.predecessorMatrix is None:
+            raise IndexError("Predecessor matrix is uninitialized!")
+        
+        path = []
+        while node1 != node2:
+            path.append(node2)
+            node2 = self.predecessorMatrix[node1][node2]
+        path.append(node1)
+        path.reverse()
+        
+        return path
+    
+    ###################
+    # Private Methods #
+    ###################
+    
+    """
+    Add directed edge between nodes
+    
+    @name addDirectedEdge
+    @param {number} node1 start node in adjacency matrix
+    @param {number} node2 end node in adjacency matrix
+    @param {number} weight node1 -> node2 edge weight
+    """
+    @classmethod
+    def __addDirectedEdge(self, node1: int, node2: int, weight: np.float64):
+        if self.adjMatrix is None:
+            raise IndexError("Adjacency matrix is uninitialized!")
+        if self.adjMatrix.shape[0] <= node1:
+            raise ValueError("node1 value out of bounds!")
+        if self.adjMatrix.shape[1] <= node2:
+            raise ValueError("node2 value out of bounds!")
+        if node1 == node2:
+            raise ValueError("node1 and node2 value must not match!")
+        if weight == 0.0:
+            raise ValueError("edge weight must be non-zero value!")
+        
+        # Mutable object
+        self.adjMatrix[node1][node2] = weight
+
+
 class CFMTSP:
     """
     Collision-Free Multiple Traveling Salesman Problem class.
@@ -60,7 +207,7 @@ class CFMTSP:
     @name __init__
     """
     def __init__(self):
-        self.adjMatrix = None
+        self.adjMatrix = ShortestPaths()
     
     """
     Initialize adjacency square matrix with input number of nodes
@@ -69,10 +216,8 @@ class CFMTSP:
     @param {number} numNodes number of nodes in adjacency matrix
     """
     @classmethod
-    def initAdjacencyMatrix(self, numNodes):
-        if (numNodes <= 0):
-            raise ValueError("Number of nodes must be greater than zero")
-        self.adjMatrix = np.zeros((numNodes, numNodes))
+    def initAdjacencyMatrix(self, numNodes: int):
+        self.adjMatrix.initAdjacencyMatrix(numNodes)
     
     """
     Add undirected edge between nodes
@@ -83,10 +228,8 @@ class CFMTSP:
     @param {number} weight node1 <-> node2 edge weight
     """
     @classmethod
-    def addUndirectedEdge(self, node1, node2, weight):
-        # An undirected edge is just a bi-directional edge between nodes
-        self.__addDirectedEdge(node1, node2, weight)
-        self.__addDirectedEdge(node2, node1, weight)
+    def addUndirectedEdge(self, node1: int, node2: int, weight: np.float64):
+        self.adjMatrix.addUndirectedEdge(node1, node2, weight)
     
     """
     Applies Algorithm 3, of CFMTSP paper, to find viable rover patrol route solution to a defined graph
@@ -106,9 +249,9 @@ class CFMTSP:
              {ndarray} selected [initial] velocities, per graph vertex, or None if no viable solution found
     """
     @classmethod
-    def calculateRoverPaths(self, vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.01, top=5.0,
+    def calculateRoverPaths(self, vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0,
                             alwaysSelectHighestProb=True, convergenceLimit = 20):
-        if self.adjMatrix is None:
+        if self.adjMatrix.isAdjacencyMatrixEmpty():
             raise IndexError("Adjacency matrix is uninitialized!")
         if not vi:
             raise ValueError("Starting vertex list must not be empty")
@@ -123,6 +266,7 @@ class CFMTSP:
         
         # Initialize variables
         Nu = len(vi)
+        self.adjMatrix.computeShortestPaths()
         
         eB, edgeEndDict, edgeStartDict, numEdges = self.__createEdgeMatrix()
         𝜓B, 𝜓B_rowDict = self.__createTrajectoryAdjacencyMatrix(numEdges, len(speeds))
@@ -168,6 +312,8 @@ class CFMTSP:
                     # This appears to be a design flaw. __chooseAugmentedEdge() modifies algorithm to explore ALL augmented and
                     # non-augmented edges that span the current graph vertex.
                     
+                    # TODO: enhance __getEdgeTravelTime and __chooseAugmentedEdge
+                    
                     nextAugmentedEdge = self.__chooseAugmentedEdge(k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel,
                                                                    eB, edgeStartDict, edgeEndDict, 𝜓B, 𝜓B_rowDict, vkcurr, vi,
                                                                    𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma, alwaysSelectHighestProb)
@@ -179,6 +325,8 @@ class CFMTSP:
                         𝜓j = 𝜉h_columnDict[Lk𝜉sel[k][-1]]
                         tkimax[k] += self.__getEdgeTravelTime(speeds, 𝜓B, 𝜓i, 𝜓j, 𝜓B_rowDict, edgeEndDict, edgeStartDict) + top
                         ei = 𝜓B_rowDict[𝜓i]
+                        
+                        # TODO: Enhance Livis for 2 dimensions
                         
                         # Update visted/unvisited node lists
                         Livis[k][edgeEndDict[ei]] = tkimax[k]
@@ -402,30 +550,6 @@ class CFMTSP:
         return 𝜉h_select
     
     """
-    Add directed edge between nodes
-    
-    @name addDirectedEdge
-    @param {number} node1 start node in adjacency matrix
-    @param {number} node2 end node in adjacency matrix
-    @param {number} weight node1 -> node2 edge weight
-    """
-    @classmethod
-    def __addDirectedEdge(self, node1, node2, weight):
-        if self.adjMatrix is None:
-            raise IndexError("Adjacency matrix is uninitialized!")
-        if self.adjMatrix.shape[0] <= node1:
-            raise ValueError("node1 value out of bounds!")
-        if self.adjMatrix.shape[1] <= node2:
-            raise ValueError("node2 value out of bounds!")
-        if node1 == node2:
-            raise ValueError("node1 and node2 value must not match!")
-        if weight == 0.0:
-            raise ValueError("edge weight must be non-zero value!")
-        
-        # Mutable object
-        self.adjMatrix[node1][node2] = weight
-    
-    """
     Create edge matrix eB from adjacency matrix, via Algorithm 1 of CFMTSP paper
     
     @name __createEdgeMatrix
@@ -436,10 +560,8 @@ class CFMTSP:
     """
     @classmethod
     def __createEdgeMatrix(self):
-        if self.adjMatrix is None:
-            raise IndexError("Adjacency matrix is uninitialized!")
-        
-        eB = self.adjMatrix.copy() # make deep copy
+        eB = self.adjMatrix.getDistanceMatrix().copy() # make deep copy
+        eB[eB == sys.float_info.max] = 0.0
         eB[eB != 0.0] += 1.0 # cover for possible round-off errors
         edgeEndDict = {}
         edgeStartDict = {}
@@ -747,9 +869,21 @@ class CFMTSP:
     """
     @classmethod
     def __getEdgeTravelTime(self, speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+        # TODO: Need to figure out proper accelerations in sub-branches + top
         c1_edge = 𝜓B_rowDict[i] # Edge 1
+        startNode = edgeStartDict[c1_edge] - 1
+        endNode = edgeEndDict[c1_edge] - 1
+        completePath = self.adjMatrix.getDistanceMatrix(startNode, endNode)
         si = speeds[(i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
         sj = speeds[(j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
+        totalTravelTime = 0.0
+        
+        for pathIndex in range(len(completePath) - 1):
+            Lij = self.adjMatrix.getDistanceMatrix()[completePath[pathIndex]][completePath[pathIndex + 1]] # Edge weight (i.e. distance)
+            totalTravelTime += self.__getTravelTime(si, sj, Lij)
+            si = sj # Assume acceleration takes place only in first sub-branch and acceleration is zero in sub-sequent branches
+            # TODO: integrate top calculations
+        
         Lij = self.adjMatrix[edgeStartDict[c1_edge] - 1][edgeEndDict[c1_edge] - 1] # Edge 1 weight (i.e. distance)
         
         return self.__getTravelTime(si, sj, Lij)
@@ -772,6 +906,7 @@ class CFMTSP:
     def __getPathTravelTime(self, speeds, 𝜓B, L𝜉sel, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
         totalTravelTime = 0.0
         
+        # TODO: forgot to add top to caclulations!
         for 𝜉h in L𝜉sel:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
