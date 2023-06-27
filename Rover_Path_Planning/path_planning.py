@@ -140,7 +140,7 @@ class ShortestPaths:
         return self.distMatrix
     
     """
-    Retrieve shortest path between 2 vertices
+    Retrieve shortest path between 2 vertices, reversed
     
     @name getShortestPath
     @param {number} node1 start vertex
@@ -157,7 +157,6 @@ class ShortestPaths:
             path.append(node2)
             node2 = self.predecessorMatrix[node1][node2]
         path.append(node1)
-        path.reverse()
         
         return path
     
@@ -295,10 +294,11 @@ class CFMTSP:
         
         for r in range(Nm): # For each ant/iteration
             vkcurr = copy.deepcopy(vi)
-            Lkunv = [set(range(1, self.adjMatrix.shape[0] + 1)) for _ in range(Nu)]
+            Lkunv = [set(range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1)) for _ in range(Nu)]
             L𝜓k = [[] for _ in range(Nu)]
             Lk𝜉sel = [[] for _ in range(Nu)]
-            Livis = [{} for _ in range(Nu)]
+            Livis = [{(node, []) for node in range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1)} for _ in range(Nu)]
+            LivisIndex = [[0] * self.adjMatrix.getDistanceMatrix().shape[0] for _ in range(Nu)]
             tkimax = [0.0] * Nu
             
             for k in range(Nu): # For each k-th ant species
@@ -312,9 +312,7 @@ class CFMTSP:
                     # This appears to be a design flaw. __chooseAugmentedEdge() modifies algorithm to explore ALL augmented and
                     # non-augmented edges that span the current graph vertex.
                     
-                    # TODO: enhance __getEdgeTravelTime and __chooseAugmentedEdge
-                    
-                    nextAugmentedEdge = self.__chooseAugmentedEdge(k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel,
+                    nextAugmentedEdge = self.__chooseAugmentedEdge(k, speeds, top, tkimax, Livis, LivisIndex, Lkunv, L𝜓k, Lk𝜉sel,
                                                                    eB, edgeStartDict, edgeEndDict, 𝜓B, 𝜓B_rowDict, vkcurr, vi,
                                                                    𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma, alwaysSelectHighestProb)
                     if nextAugmentedEdge:
@@ -323,13 +321,48 @@ class CFMTSP:
                         # CalculateMaxArrivalTime()
                         𝜓i = 𝜉h_rowDict[Lk𝜉sel[k][-1]]
                         𝜓j = 𝜉h_columnDict[Lk𝜉sel[k][-1]]
-                        tkimax[k] += self.__getEdgeTravelTime(speeds, 𝜓B, 𝜓i, 𝜓j, 𝜓B_rowDict, edgeEndDict, edgeStartDict) + top
+                        tkimax[k] += self.__getEdgeTravelTime(speeds, top, 𝜓B, 𝜓i, 𝜓j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
                         ei = 𝜓B_rowDict[𝜓i]
                         
-                        # TODO: Enhance Livis for 2 dimensions
-                        
                         # Update visted/unvisited node lists
-                        Livis[k][edgeEndDict[ei]] = tkimax[k]
+                        # TODO: Wrap this in a function
+                        startNode = edgeStartDict[ei] - 1
+                        endNode = edgeEndDict[ei] - 1
+                        completePath = self.adjMatrix.getShortestPath(startNode, endNode)
+                        si = speeds[(𝜓i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
+                        sj = speeds[(𝜓j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
+                        
+                        # TODO: CONTINUE HERE
+                        # TODO: Update LivisIndex here
+                        # completePath = self.adjMatrix.getShortestPath(edgeStart - 1, edgeEnd - 1)
+                        # LivisIndexCopy = copy.deepcopy(LivisIndex)
+                        for v in range(len(Livis)):
+                            if v != k: # Don't need to compare ant's node visit times against self
+                                prevPathTime = tkimax[k]
+                                for pathIndex in range(len(completePath) - 1, 0, -1): # Path is in reverse order
+                                    prevNode = completePath[pathIndex] + 1
+                                    nextNode = completePath[pathIndex - 1] + 1
+                                    if nextNode in Livis[v]:
+                                        # TODO: Add if condition to limit speed selection to lowest speeds for
+                                        #       starting vertex? Makes sense since bots would be rolling from dead start
+                                        for i in range(LivisIndex[v][edgeEnd - 1], len(Livis[v][edgeEnd])):
+                                            tik1 = prevPathTime + top + self.__getTravelTime(si, sj, edgeDistance)
+                                            tik2 = Livis[v][edgeEnd][i]
+                                            if tik1 > tik2:
+                                                LivisIndexCopy[v][edgeEnd - 1] = i if (i + 1) >= len(Livis[v][edgeEnd]) else (i + 1)
+                        
+                        si = speeds[(𝜓i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
+                        sj = speeds[(𝜓j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
+                        totalTravelTime = 0.0
+                        for pathIndex in range(len(completePath) - 1, 0, -1): # Path is in reverse order
+                            startNode = completePath[pathIndex]
+                            endNode = completePath[pathIndex - 1]
+                            Lij = self.adjMatrix.getDistanceMatrix()[startNode][endNode] # Edge weight (i.e. distance)
+                            totalTravelTime += top + self.__getTravelTime(si, sj, Lij)
+                            Livis[k][endNode + 1].append(totalTravelTime)
+                            si = sj # Assume acceleration takes place only in first sub-branch and acceleration is zero in sub-sequent branches
+                                    # TODO: May want to change this for dynamic acceleration options
+                        
                         Lkunv[k].remove(edgeEndDict[ei])
                         vkcurr[k] = edgeEndDict[ei] - 1
                     
@@ -346,7 +379,7 @@ class CFMTSP:
                 # Increase pheromones along chosen path.
                 # Contrary to the description in the paper, it makes more sense to move the function here instead of
                 # after the "for k in range(Nu)" loop
-                self.__calculatePheromoneTrailsAmount(k, Lk𝜉sel, τk, speeds, 𝜓B, 𝜉h_rowDict,
+                self.__calculatePheromoneTrailsAmount(k, Lk𝜉sel, τk, speeds, top, 𝜓B, 𝜉h_rowDict,
                                                       𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
             # END for k in range(Nu)
             if not L𝜓k[k]:
@@ -397,6 +430,7 @@ class CFMTSP:
     @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
     @param {ndarray} tkimax maximum route travel time of each ant/rover in current iteration
     @param {array} Livis list of visited nodes, per ant/rover, and associated arrival times
+    @param {array} LivisIndex list of visited node bookmarks to help skip unnecessary repeat checks
     @param {array} Lkunv list of unvisited nodes, per ant/rover
     @param {array} L𝜓k list of trajectories which span current graph vertex
     @param {array} L𝜉sel list of augmented edges traversed by ant/rover
@@ -419,7 +453,7 @@ class CFMTSP:
     @returns {number} augmented edge index
     """
     @classmethod
-    def __chooseAugmentedEdge(self, k, speeds, top, tkimax, Livis, Lkunv, L𝜓k, Lk𝜉sel, eB, edgeStartDict, edgeEndDict,
+    def __chooseAugmentedEdge(self, k, speeds, top, tkimax, Livis, LivisIndex, Lkunv, L𝜓k, Lk𝜉sel, eB, edgeStartDict, edgeEndDict,
                               𝜓B, 𝜓B_rowDict, vkcurr, vi, 𝜉B, 𝜉h_columnDict, 𝜉h_rowDict, 𝜂, τk, β, gamma, alwaysSelectHighestProb):
         L𝜓k[k].clear()
         viableEdges = []
@@ -430,6 +464,10 @@ class CFMTSP:
         chosen_e1 = None
         chosen_e2 = None
         
+        # for si in speeds:
+        #                     for sj in speeds:
+        #                         tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
+        
         # From cold start, we need to select from all possible edges
         if not Lk𝜉sel[k]:
             Lek = self.__createEdgeList(eB, vkcurr[k])
@@ -437,9 +475,7 @@ class CFMTSP:
             # Collect viable edge candidates
             for edge in Lek:
                 if edgeEndDict[edge] in Lkunv[k]:
-                    if not self.__isCollided(speeds, top, tkimax[k], Livis, edgeEndDict[edge],
-                                             self.adjMatrix[edgeStartDict[edge] - 1][edgeEndDict[edge] - 1]):
-                        viableEdges.append(edge)
+                    viableEdges.append(edge)
         
         # A trajectory was selected before, therefore an edge was already chosen
         else:
@@ -469,9 +505,38 @@ class CFMTSP:
             if len(Lkunv[k]) > 1:
                 # Remove edges that do not lead to an unvisited vertex
                 L𝜉k = list(filter(lambda 𝜉h: edgeEndDict[𝜓B_rowDict[𝜉h_columnDict[𝜉h]]] in Lkunv[k], L𝜉k))
-                # Remove augmented edges whose target sub-trajectory will lead to a collision
-                L𝜉k = list(filter(lambda 𝜉h: not self.__willCollide(𝜉h, k, speeds, top, tkimax, Livis, edgeStartDict, edgeEndDict,
-                                                                      𝜓B, 𝜓B_rowDict, 𝜉h_columnDict, 𝜉h_rowDict), L𝜉k))
+                
+            # TODO: Check for collisions here instead, we can get rid of __willCollide then!
+            L𝜉k_CollisionFree = []
+            for 𝜉h in L𝜉k:
+                𝜓i = 𝜉h_rowDict[𝜉h]
+                𝜓j = 𝜉h_columnDict[𝜉h]
+                startNode = edgeStartDict[𝜓i] - 1
+                endNode = edgeEndDict[𝜓i] - 1
+                completePath = self.adjMatrix.getShortestPath(startNode, endNode)
+                si = speeds[(𝜓i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
+                sj = speeds[(𝜓j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
+                prevPathTime = 0.0
+                collided = False
+                
+                for pathIndex in range(len(completePath) - 1, 0, -1): # Path is in reverse order
+                    startNode = completePath[pathIndex]
+                    endNode = completePath[pathIndex - 1]
+                    Lij = self.adjMatrix.getDistanceMatrix()[startNode][endNode] # Edge weight (i.e. distance)
+                    
+                    collided = collided or self.__isCollided(k, speeds, top, prevPathTime + tkimax[k], Livis, LivisIndex, endNode + 1,
+                                                             self.adjMatrix.getDistanceMatrix()[startNode][endNode])
+                    if collided:
+                        break
+                    
+                    prevPathTime += top + self.__getTravelTime(si, sj, Lij)
+                    si = sj # Assume acceleration takes place only in first sub-branch and acceleration is zero in sub-sequent branches
+                            # TODO: May want to change this for dynamic acceleration options
+                            
+                if not collided:
+                    L𝜉k_CollisionFree.append(𝜉h)
+            # END for 𝜉h in L𝜉k:
+            L𝜉k = L𝜉k_CollisionFree
             
             L𝜉k_total += L𝜉k
         # END for edge in viableEdges:
@@ -674,6 +739,7 @@ class CFMTSP:
     @name __createAugmentedEdgeWeightMatrix
     @param {ndarray} 𝜉B augmented edge adjacency matrix
     @param {array} speeds list of available speed selections for vehicle
+    @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
     @param {ndarray} 𝜓B trajectory adjacency matrix
     @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
     @param {dictionary} edgeEndDict look-up table of end nodes for edges
@@ -681,7 +747,7 @@ class CFMTSP:
     @returns {ndarray} augmented edge weight matrix
     """
     @classmethod
-    def __createAugmentedEdgeWeightMatrix(self, 𝜉B, speeds, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+    def __createAugmentedEdgeWeightMatrix(self, 𝜉B, speeds, top, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
         if 𝜉B is None:
             raise IndexError("Augmented edge adjacency matrix is empty!")
         
@@ -691,7 +757,7 @@ class CFMTSP:
         for index, 𝜉h in np.ndenumerate(𝜉B):
             if 𝜉h != 0:
                 # We set 𝜂 to be the multiplicative inverse of the edge travel time
-                𝜂[index[0]][index[1]] = 1/self.__getEdgeTravelTime(speeds, 𝜓B, index[0] + 1, index[1] + 1, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+                𝜂[index[0]][index[1]] = 1/self.__getEdgeTravelTime(speeds, top, 𝜓B, index[0] + 1, index[1] + 1, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
         
         return 𝜂
     
@@ -721,6 +787,7 @@ class CFMTSP:
     @param {array} L𝜉sel list of augmented edges traversed by ant
     @param {ndarray} τ pheromone matrix
     @param {array} speeds list of available speed selections for vehicle
+    @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
     @param {ndarray} 𝜓B trajectory adjacency matrix
     @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
     @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
@@ -729,9 +796,9 @@ class CFMTSP:
     @param {dictionary} edgeStartDict look-up table of start nodes for edges
     """
     @classmethod
-    def __calculatePheromoneTrailsAmount(self, k, L𝜉sel, τ, speeds, 𝜓B, 𝜉h_rowDict,
+    def __calculatePheromoneTrailsAmount(self, k, L𝜉sel, τ, speeds, top, 𝜓B, 𝜉h_rowDict,
                                          𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
-        totalPathTime = self.__getPathTravelTime(speeds, 𝜓B, L𝜉sel[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict,
+        totalPathTime = self.__getPathTravelTime(speeds, top, 𝜓B, L𝜉sel[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict,
                                                  edgeEndDict, edgeStartDict)
         for 𝜉h in L𝜉sel[k]:
             i = 𝜉h_rowDict[𝜉h]
@@ -797,68 +864,54 @@ class CFMTSP:
     Determines if collision can/will happen along selected edge
     
     @name __isCollided
+    @param {number} k index for mutable objects
     @param {array} speeds list of available speed selections for vehicle
     @param {number} top operational time of vehicle at a node
     @param {number} Livis list of visited nodes and arrival times
+    @param {array} LivisIndex list of visited node bookmarks to help skip unnecessary repeat checks
     @param {number} edgeEnd target node of edge
     @param {number} edgeDistance edge weight
     @returns {bool} collision prediction
     """
     @classmethod
-    def __isCollided(self, speeds, top, currentTime, Livis, edgeEnd, edgeDistance):
-        for k in range(len(Livis)):
-            if edgeEnd in Livis[k]:
-                # TODO: Add if condition to limit speed selection to lowest speeds for
-                #       starting vertex? Makes sense since bots would be rolling from dead start
-                for si in speeds:
-                    for sj in speeds:
-                        tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
-                        tik2 = Livis[k][edgeEnd]
-                        if abs(tik1 - tik2) <= top: # Collision condition according to Definition 6 of CFMTSP paper
-                            # CFMTSP paper is fuzzy on the details but seems to imply that
-                            # "minimum arrival time difference" determines collision state. If that is the case,
-                            # then we just return TRUE the moment we find 1 possibility of collision among the
-                            # various combinations of velocity selections, and try another edge. However it looks like this
-                            # could lead to the [increased] possibility of the algorithm getting stuck if the bots are
-                            # clustered together. May want to consider changing the main algorithm to allow sub-set of
-                            # trajectories that will not result in a collision at the common end node.
-                            return True
+    def __isCollided(self, k, speeds, top, currentTime, Livis, LivisIndex, edgeEnd, edgeDistance):
+        # completePath = self.adjMatrix.getShortestPath(edgeStart - 1, edgeEnd - 1)
+        # LivisIndexCopy = copy.deepcopy(LivisIndex)
+        for v in range(len(Livis)):
+            if v != k: # Don't need to compare ant's node visit times against self
+                # prevPathTime = 0.0
+                # for pathIndex in range(len(completePath) - 1, 0, -1): # Path is in reverse order
+                #     prevNode = completePath[pathIndex] + 1
+                #     nextNode = completePath[pathIndex - 1] + 1
+                if edgeEnd in Livis[v]:
+                    # TODO: Add if condition to limit speed selection to lowest speeds for
+                    #       starting vertex? Makes sense since bots would be rolling from dead start
+                    for i in range(LivisIndex[v][edgeEnd - 1], len(Livis[v][edgeEnd])):
+                        for si in speeds:
+                            for sj in speeds:
+                                tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
+                                tik2 = Livis[v][edgeEnd][i]
+                                if abs(tik1 - tik2) <= top: # Collision condition according to Definition 6 of CFMTSP paper
+                                    # CFMTSP paper is fuzzy on the details but seems to imply that
+                                    # "minimum arrival time difference" determines collision state. If that is the case,
+                                    # then we just return TRUE the moment we find 1 possibility of collision among the
+                                    # various combinations of velocity selections, and try another edge. However it looks like this
+                                    # could lead to the [increased] possibility of the algorithm getting stuck if the bots are
+                                    # clustered together. May want to consider changing the main algorithm to allow sub-set of
+                                    # trajectories that will not result in a collision at the common end node.
+                                    return True
+                                # if tik1 > tik2:
+                                #     LivisIndexCopy[v][edgeEnd - 1] = i if (i + 1) >= len(Livis[v][edgeEnd]) else (i + 1)
         
+        # LivisIndex = LivisIndexCopy
         return False
-    
-    """
-    Determines if target sub-trajectory of current augmented edge will lead to a collision.
-    
-    @name __willCollide
-    @param {number} 𝜉h edge selection from augmented edge matrix 𝜉B
-    @param {number} k index for mutable objects
-    @param {array} speeds list of rover/ant velocity options (positive, non-zero, float values) along graph edges
-    @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
-    @param {ndarray} tkimax maximum route travel time of each ant/rover in current iteration
-    @param {array} Livis list of visited nodes, per ant/rover, and associated arrival times
-    @param {dictionary} edgeStartDict look-up table of start nodes for edges
-    @param {dictionary} edgeEndDict look-up table of end nodes for edges
-    @param {ndarray} 𝜓B trajectory adjacency matrix
-    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
-    @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
-    @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
-    @returns {bool} collision prediction
-    """
-    @classmethod
-    def __willCollide(self, 𝜉h, k, speeds, top, tkimax, Livis, edgeStartDict, edgeEndDict, 𝜓B, 𝜓B_rowDict, 𝜉h_columnDict, 𝜉h_rowDict):
-        𝜓i = 𝜉h_rowDict[𝜉h]
-        𝜓j = 𝜉h_columnDict[𝜉h]
-        nextEdge = 𝜓B_rowDict[𝜓j]
-        next_tkimax = tkimax[k] + self.__getEdgeTravelTime(speeds, 𝜓B, 𝜓i, 𝜓j, 𝜓B_rowDict, edgeEndDict, edgeStartDict) + top
-        
-        return self.__isCollided(speeds, top, next_tkimax, Livis, edgeEndDict[nextEdge],
-                                 self.adjMatrix[edgeStartDict[nextEdge] - 1][edgeEndDict[nextEdge] - 1])
     
     """
     Calculate travel time along augmented edge
     
     @name __getEdgeTravelTime
     @param {array} speeds list of available speed selections for vehicle
+    @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
     @param {ndarray} 𝜓B trajectory adjacency matrix
     @param {number} i augmented edge row index in 𝜉B
     @param {number} j augmented edge column index in 𝜉B
@@ -868,31 +921,31 @@ class CFMTSP:
     @returns {number} travel time for augmented edge indexed by 𝜉h
     """
     @classmethod
-    def __getEdgeTravelTime(self, speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
-        # TODO: Need to figure out proper accelerations in sub-branches + top
+    def __getEdgeTravelTime(self, speeds, top, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
         c1_edge = 𝜓B_rowDict[i] # Edge 1
         startNode = edgeStartDict[c1_edge] - 1
         endNode = edgeEndDict[c1_edge] - 1
-        completePath = self.adjMatrix.getDistanceMatrix(startNode, endNode)
+        completePath = self.adjMatrix.getShortestPath(startNode, endNode)
         si = speeds[(i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
         sj = speeds[(j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
         totalTravelTime = 0.0
         
-        for pathIndex in range(len(completePath) - 1):
-            Lij = self.adjMatrix.getDistanceMatrix()[completePath[pathIndex]][completePath[pathIndex + 1]] # Edge weight (i.e. distance)
-            totalTravelTime += self.__getTravelTime(si, sj, Lij)
+        for pathIndex in range(len(completePath) - 1, 0, -1): # Path is in reverse order
+            startNode = completePath[pathIndex]
+            endNode = completePath[pathIndex - 1]
+            Lij = self.adjMatrix.getDistanceMatrix()[startNode][endNode] # Edge weight (i.e. distance)
+            totalTravelTime += top + self.__getTravelTime(si, sj, Lij)
             si = sj # Assume acceleration takes place only in first sub-branch and acceleration is zero in sub-sequent branches
-            # TODO: integrate top calculations
+                    # TODO: May want to change this for dynamic acceleration options
         
-        Lij = self.adjMatrix[edgeStartDict[c1_edge] - 1][edgeEndDict[c1_edge] - 1] # Edge 1 weight (i.e. distance)
-        
-        return self.__getTravelTime(si, sj, Lij)
+        return totalTravelTime
     
     """
     Calculate travel time along augmented path
     
     @name __getPathTravelTime
     @param {array} speeds list of available speed selections for vehicle
+    @param {number} top operational time; time a rover/ant spends at a node between entering and leaving the node
     @param {ndarray} 𝜓B trajectory adjacency matrix
     @param {array} L𝜉sel array of augmented edge indexes
     @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
@@ -903,14 +956,13 @@ class CFMTSP:
     @returns {number} travel time for augmented edge indexed by 𝜉h
     """
     @classmethod
-    def __getPathTravelTime(self, speeds, 𝜓B, L𝜉sel, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+    def __getPathTravelTime(self, speeds, top, 𝜓B, L𝜉sel, 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
         totalTravelTime = 0.0
         
-        # TODO: forgot to add top to caclulations!
         for 𝜉h in L𝜉sel:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
-            totalTravelTime += self.__getEdgeTravelTime(speeds, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+            totalTravelTime += self.__getEdgeTravelTime(speeds, top, 𝜓B, i, j, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
         
         return totalTravelTime
 
