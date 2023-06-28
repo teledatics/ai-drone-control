@@ -148,7 +148,7 @@ class ShortestPaths:
     @returns {array} list of vertices in shortest path
     """
     @classmethod
-    def getShortestPath(self, node1: int, node2: int) -> list[int]:
+    def getShortestPath(self, node1: int, node2: int):
         if self.predecessorMatrix is None:
             raise IndexError("Predecessor matrix is uninitialized!")
         
@@ -206,7 +206,7 @@ class CFMTSP:
     @name __init__
     """
     def __init__(self):
-        self.adjMatrix = ShortestPaths()
+        self.adjMatrix = None
     
     """
     Initialize adjacency square matrix with input number of nodes
@@ -216,6 +216,7 @@ class CFMTSP:
     """
     @classmethod
     def initAdjacencyMatrix(self, numNodes: int):
+        self.adjMatrix = ShortestPaths()
         self.adjMatrix.initAdjacencyMatrix(numNodes)
     
     """
@@ -271,7 +272,7 @@ class CFMTSP:
         𝜓B, 𝜓B_rowDict = self.__createTrajectoryAdjacencyMatrix(numEdges, len(speeds))
         𝜉B, _, 𝜉h_rowDict, 𝜉h_columnDict, _ = self.__createAugmentedEdgeAdjacencyMatrix(𝜓B, 𝜓B_rowDict,
                                                                                            edgeEndDict, edgeStartDict)
-        𝜂 = self.__createAugmentedEdgeWeightMatrix(𝜉B, speeds, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+        𝜂 = self.__createAugmentedEdgeWeightMatrix(𝜉B, speeds, top, 𝜓B, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
         
         # Important note: CFMTSP paper suggests using acceleration as the weight factor for augmented edges but
         # we use the edge travel time instead to accommodate non-uniform acceleration (if used)
@@ -297,7 +298,7 @@ class CFMTSP:
             Lkunv = [set(range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1)) for _ in range(Nu)]
             L𝜓k = [[] for _ in range(Nu)]
             Lk𝜉sel = [[] for _ in range(Nu)]
-            Livis = [{(node, []) for node in range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1)} for _ in range(Nu)]
+            Livis = [{node: [] for node in range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1)} for _ in range(Nu)]
             LivisIndex = [[0] * self.adjMatrix.getDistanceMatrix().shape[0] for _ in range(Nu)]
             tkimax = [0.0] * Nu
             
@@ -331,28 +332,6 @@ class CFMTSP:
                         completePath = self.adjMatrix.getShortestPath(startNode, endNode)
                         si = speeds[(𝜓i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
                         sj = speeds[(𝜓j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
-                        
-                        # TODO: CONTINUE HERE
-                        # TODO: Update LivisIndex here
-                        # completePath = self.adjMatrix.getShortestPath(edgeStart - 1, edgeEnd - 1)
-                        # LivisIndexCopy = copy.deepcopy(LivisIndex)
-                        for v in range(len(Livis)):
-                            if v != k: # Don't need to compare ant's node visit times against self
-                                prevPathTime = tkimax[k]
-                                for pathIndex in range(len(completePath) - 1, 0, -1): # Path is in reverse order
-                                    prevNode = completePath[pathIndex] + 1
-                                    nextNode = completePath[pathIndex - 1] + 1
-                                    if nextNode in Livis[v]:
-                                        # TODO: Add if condition to limit speed selection to lowest speeds for
-                                        #       starting vertex? Makes sense since bots would be rolling from dead start
-                                        for i in range(LivisIndex[v][edgeEnd - 1], len(Livis[v][edgeEnd])):
-                                            tik1 = prevPathTime + top + self.__getTravelTime(si, sj, edgeDistance)
-                                            tik2 = Livis[v][edgeEnd][i]
-                                            if tik1 > tik2:
-                                                LivisIndexCopy[v][edgeEnd - 1] = i if (i + 1) >= len(Livis[v][edgeEnd]) else (i + 1)
-                        
-                        si = speeds[(𝜓i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
-                        sj = speeds[(𝜓j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
                         totalTravelTime = 0.0
                         for pathIndex in range(len(completePath) - 1, 0, -1): # Path is in reverse order
                             startNode = completePath[pathIndex]
@@ -365,6 +344,18 @@ class CFMTSP:
                         
                         Lkunv[k].remove(edgeEndDict[ei])
                         vkcurr[k] = edgeEndDict[ei] - 1
+                        
+                        # Update Livis lookup bookmarks
+                        for v in range(len(Livis)):
+                            if v != k: # Don't need to compare ant's node visit times against self
+                                for node in range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1):
+                                    if node in Livis[v]:
+                                        for i in range(LivisIndex[v][node - 1], len(Livis[v][node])):
+                                            if (tkimax[k] > Livis[v][node][i]) and (abs(tkimax[k] - Livis[v][node][i]) > top):
+                                                LivisIndex[v][node - 1] = i if (i + 1) >= len(Livis[v][node]) else (i + 1)
+                                            else:
+                                                break # Timestamps are in increasing order so if we reach here, then we do not
+                                                      # need to finish iterating through the list of timestamps
                     
                     if not L𝜓k[k]:
                         # Reduce pheromones along chosen path
@@ -464,10 +455,6 @@ class CFMTSP:
         chosen_e1 = None
         chosen_e2 = None
         
-        # for si in speeds:
-        #                     for sj in speeds:
-        #                         tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
-        
         # From cold start, we need to select from all possible edges
         if not Lk𝜉sel[k]:
             Lek = self.__createEdgeList(eB, vkcurr[k])
@@ -506,13 +493,13 @@ class CFMTSP:
                 # Remove edges that do not lead to an unvisited vertex
                 L𝜉k = list(filter(lambda 𝜉h: edgeEndDict[𝜓B_rowDict[𝜉h_columnDict[𝜉h]]] in Lkunv[k], L𝜉k))
                 
-            # TODO: Check for collisions here instead, we can get rid of __willCollide then!
+            # Check for collisions
             L𝜉k_CollisionFree = []
             for 𝜉h in L𝜉k:
                 𝜓i = 𝜉h_rowDict[𝜉h]
                 𝜓j = 𝜉h_columnDict[𝜉h]
-                startNode = edgeStartDict[𝜓i] - 1
-                endNode = edgeEndDict[𝜓i] - 1
+                startNode = edgeStartDict[𝜓B_rowDict[𝜓i]] - 1
+                endNode = edgeEndDict[𝜓B_rowDict[𝜓i]] - 1
                 completePath = self.adjMatrix.getShortestPath(startNode, endNode)
                 si = speeds[(𝜓i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
                 sj = speeds[(𝜓j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
@@ -532,6 +519,8 @@ class CFMTSP:
                     prevPathTime += top + self.__getTravelTime(si, sj, Lij)
                     si = sj # Assume acceleration takes place only in first sub-branch and acceleration is zero in sub-sequent branches
                             # TODO: May want to change this for dynamic acceleration options
+                
+                # TODO: Should we add a collision check for next edge here?
                             
                 if not collided:
                     L𝜉k_CollisionFree.append(𝜉h)
@@ -599,7 +588,7 @@ class CFMTSP:
                 if Pr𝜉h > highestProb:
                     𝜉h_select = 𝜉h
                     highestProb = Pr𝜉h
-        # METHOD 2: Select augmented edge based on non-uniform distribution
+        # METHOD 2: Select augmented edge based on non-uniform random selection
         else:
             probabilities = []
             for 𝜉h in L𝜉k:
