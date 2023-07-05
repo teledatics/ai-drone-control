@@ -125,7 +125,7 @@ class ShortestPaths:
                 for j in range(self.distMatrix.shape[0]):
                     if ((self.distMatrix[i][k] != sys.float_info.max) and # Help avoid arithmetic overflow
                         (self.distMatrix[k][j] != sys.float_info.max) and
-                        (self.distMatrix[i][k] + self.distMatrix[k][j] < self.distMatrix[i][j])):
+                        ((self.distMatrix[i][k] + self.distMatrix[k][j]) < self.distMatrix[i][j])):
                         self.distMatrix[i][j] = self.distMatrix[i][k] + self.distMatrix[k][j]
                         self.predecessorMatrix[i][j] = self.predecessorMatrix[k][j]
     
@@ -395,15 +395,39 @@ class CFMTSP:
             selectedSpeeds = [[] for _ in range(Nu)]
             
             for k in range(Nu):
-                for 𝜉h in 𝜓kbest[k]:
+                for 𝜉h_index in range(len(𝜓kbest[k])):
+                    𝜉h = 𝜓kbest[k][𝜉h_index]
                     𝜓i = 𝜉h_rowDict[𝜉h]
-                    selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓i]] - 1) # Set to 0-based index
-                    selectedSpeeds[k].append(speeds[(𝜓i - 1) % 𝜓B.shape[1]])
+                    𝜓j = 𝜉h_columnDict[𝜉h]
+                    ei = 𝜓B_rowDict[𝜓i]
+                    si = speeds[(𝜓i - 1) % 𝜓B.shape[1]] # Speed defined by initial trajectory node in 𝜓B
+                    sj = speeds[(𝜓j - 1) % 𝜓B.shape[1]] # Speed defined by target trajectory node in 𝜓B
+                    startNode = edgeStartDict[ei] - 1
+                    endNode = edgeEndDict[ei] - 1
+                    completePath = self.adjMatrix.getShortestPath(startNode, endNode)
+                    completePath.reverse() # getShortestPaths returns path in reverse order; corrected here
+                    
+                    # Remove last vertex in path list since it will be included in next iteration
+                    # unless we have reached the end
+                    if 𝜉h_index < (len(𝜓kbest[k]) - 1):
+                        completePath.pop()
+                    
+                    # selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓i]] - 1) # Set to 0-based index
+                    # selectedSpeeds[k].append(speeds[(𝜓i - 1) % 𝜓B.shape[1]])
+                    selectedVertices[k] += completePath
+                    selectedSpeeds[k].append(si)
+                    # Assume acceleration takes place only in first sub-branch and acceleration is zero in sub-sequent branches
+                    # TODO: May want to change this for dynamic acceleration options
+                    selectedSpeeds[k] += [sj] * (len(completePath) - 1)
+                # END for 𝜉h_index in range(len(𝜓kbest[k])):
+                
                 # Append the final vertex and speed which should be the origin
-                𝜉h = 𝜓kbest[k][-1]
-                𝜓j = 𝜉h_columnDict[𝜉h]
-                selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓j]] - 1) # Set to 0-based index
-                selectedSpeeds[k].append(speeds[(𝜓j - 1) % 𝜓B.shape[1]])
+                # 𝜉h = 𝜓kbest[k][-1]
+                # 𝜓j = 𝜉h_columnDict[𝜉h]
+                # selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓j]] - 1) # Set to 0-based index
+                # selectedSpeeds[k].append(speeds[(𝜓j - 1) % 𝜓B.shape[1]])
+            # END for k in range(Nu):
+        # END if 𝜓kbest:
         
         return selectedVertices, selectedSpeeds
     
@@ -452,8 +476,8 @@ class CFMTSP:
         bestAugmentedEdge = None
         
         # For debugging
-        chosen_e1 = None
-        chosen_e2 = None
+        chosen_e1_path = None
+        chosen_e2_path = None
         
         # From cold start, we need to select from all possible edges
         if not Lk𝜉sel[k]:
@@ -511,8 +535,8 @@ class CFMTSP:
                     endNode = completePath[pathIndex - 1]
                     Lij = self.adjMatrix.getDistanceMatrix()[startNode][endNode] # Edge weight (i.e. distance)
                     
-                    collided = collided or self.__isCollided(k, speeds, top, prevPathTime + tkimax[k], Livis, LivisIndex, endNode + 1,
-                                                             self.adjMatrix.getDistanceMatrix()[startNode][endNode])
+                    collided = self.__isCollided(k, si, sj, top, prevPathTime + tkimax[k], Livis, LivisIndex, endNode + 1,
+                                                 self.adjMatrix.getDistanceMatrix()[startNode][endNode])
                     if collided:
                         break
                     
@@ -535,11 +559,15 @@ class CFMTSP:
             return None # No viable augmented edges
             
         # Select augmented edge with highest probability
-        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb)
+        bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb, edgeStartDict, edgeEndDict, 𝜓B_rowDict)
         
         # For debugging
-        chosen_e1 = 𝜓B_rowDict[𝜉h_rowDict[bestAugmentedEdge]]
-        chosen_e2 = 𝜓B_rowDict[𝜉h_columnDict[bestAugmentedEdge]]
+        ei = 𝜓B_rowDict[𝜉h_rowDict[bestAugmentedEdge]]
+        ej = 𝜓B_rowDict[𝜉h_columnDict[bestAugmentedEdge]]
+        chosen_e1_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
+        chosen_e1_path.reverse()
+        chosen_e2_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
+        chosen_e2_path.reverse()
         
         return bestAugmentedEdge
     
@@ -556,10 +584,13 @@ class CFMTSP:
     @param {number} gamma variable for determining strength of pheromone factor in probability formula
     @param {boolean} alwaysSelectHighestProb flag which determines if algorithm always chooses largest weighted edge
                      or selects edge based on non-uniform distribution
+    @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @param {dictionary} edgeEndDict look-up table of end nodes for edges
+    @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
     @returns {number} augmented edge index
     """
     @classmethod
-    def __selectAugmentedEdge(self, L𝜉k, τ, 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb):
+    def __selectAugmentedEdge(self, L𝜉k, τ, 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb, edgeStartDict, edgeEndDict, 𝜓B_rowDict):
         𝜉h_select = None
         
         # If there is only one choice available, just return it
@@ -582,6 +613,15 @@ class CFMTSP:
             for 𝜉h in L𝜉k:
                 i = 𝜉h_rowDict[𝜉h]
                 j = 𝜉h_columnDict[𝜉h]
+                
+                # For debugging
+                ei = 𝜓B_rowDict[i]
+                ej = 𝜓B_rowDict[j]
+                ei_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
+                ei_path.reverse()
+                ej_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
+                ej_path.reverse()
+                
                 𝜂_h = 𝜂[i - 1][j - 1]
                 τ_h = τ[i - 1][j - 1]
                 Pr𝜉h = ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
@@ -594,6 +634,15 @@ class CFMTSP:
             for 𝜉h in L𝜉k:
                 i = 𝜉h_rowDict[𝜉h]
                 j = 𝜉h_columnDict[𝜉h]
+                
+                # For debugging
+                ei = 𝜓B_rowDict[i]
+                ej = 𝜓B_rowDict[j]
+                ei_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
+                ei_path.reverse()
+                ej_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
+                ej_path.reverse()
+                
                 𝜂_h = 𝜂[i - 1][j - 1]
                 τ_h = τ[i - 1][j - 1]
                 Pr𝜉h = ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
@@ -746,7 +795,10 @@ class CFMTSP:
         for index, 𝜉h in np.ndenumerate(𝜉B):
             if 𝜉h != 0:
                 # We set 𝜂 to be the multiplicative inverse of the edge travel time
-                𝜂[index[0]][index[1]] = 1/self.__getEdgeTravelTime(speeds, top, 𝜓B, index[0] + 1, index[1] + 1, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+                edgeTravelTime = self.__getEdgeTravelTime(speeds, top, 𝜓B, index[0] + 1, index[1] + 1,
+                                                          𝜓B_rowDict, edgeEndDict, edgeStartDict)
+                inverse = 1.0 / edgeTravelTime
+                𝜂[index[0]][index[1]] = inverse
         
         return 𝜂
     
@@ -854,7 +906,8 @@ class CFMTSP:
     
     @name __isCollided
     @param {number} k index for mutable objects
-    @param {array} speeds list of available speed selections for vehicle
+    @param {number} si initial speed of vehicle along edge
+    @param {number} sj target speed of vehicle along edge
     @param {number} top operational time of vehicle at a node
     @param {number} Livis list of visited nodes and arrival times
     @param {array} LivisIndex list of visited node bookmarks to help skip unnecessary repeat checks
@@ -863,7 +916,7 @@ class CFMTSP:
     @returns {bool} collision prediction
     """
     @classmethod
-    def __isCollided(self, k, speeds, top, currentTime, Livis, LivisIndex, edgeEnd, edgeDistance):
+    def __isCollided(self, k, si, sj, top, currentTime, Livis, LivisIndex, edgeEnd, edgeDistance):
         # completePath = self.adjMatrix.getShortestPath(edgeStart - 1, edgeEnd - 1)
         # LivisIndexCopy = copy.deepcopy(LivisIndex)
         for v in range(len(Livis)):
@@ -876,21 +929,19 @@ class CFMTSP:
                     # TODO: Add if condition to limit speed selection to lowest speeds for
                     #       starting vertex? Makes sense since bots would be rolling from dead start
                     for i in range(LivisIndex[v][edgeEnd - 1], len(Livis[v][edgeEnd])):
-                        for si in speeds:
-                            for sj in speeds:
-                                tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
-                                tik2 = Livis[v][edgeEnd][i]
-                                if abs(tik1 - tik2) <= top: # Collision condition according to Definition 6 of CFMTSP paper
-                                    # CFMTSP paper is fuzzy on the details but seems to imply that
-                                    # "minimum arrival time difference" determines collision state. If that is the case,
-                                    # then we just return TRUE the moment we find 1 possibility of collision among the
-                                    # various combinations of velocity selections, and try another edge. However it looks like this
-                                    # could lead to the [increased] possibility of the algorithm getting stuck if the bots are
-                                    # clustered together. May want to consider changing the main algorithm to allow sub-set of
-                                    # trajectories that will not result in a collision at the common end node.
-                                    return True
-                                # if tik1 > tik2:
-                                #     LivisIndexCopy[v][edgeEnd - 1] = i if (i + 1) >= len(Livis[v][edgeEnd]) else (i + 1)
+                        tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
+                        tik2 = Livis[v][edgeEnd][i]
+                        if abs(tik1 - tik2) <= top: # Collision condition according to Definition 6 of CFMTSP paper
+                            # CFMTSP paper is fuzzy on the details but seems to imply that
+                            # "minimum arrival time difference" determines collision state. If that is the case,
+                            # then we just return TRUE the moment we find 1 possibility of collision among the
+                            # various combinations of velocity selections, and try another edge. However it looks like this
+                            # could lead to the [increased] possibility of the algorithm getting stuck if the bots are
+                            # clustered together. May want to consider changing the main algorithm to allow sub-set of
+                            # trajectories that will not result in a collision at the common end node.
+                            return True
+                        # if tik1 > tik2:
+                        #     LivisIndexCopy[v][edgeEnd - 1] = i if (i + 1) >= len(Livis[v][edgeEnd]) else (i + 1)
         
         # LivisIndex = LivisIndexCopy
         return False
