@@ -89,7 +89,7 @@ def main():
     roverPatrolPathPlanner.addUndirectedEdge(NODE_8,  NODE_5,  math.dist(nodes[NODE_8],  nodes[NODE_5]))
     roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_1,  math.dist(nodes[NODE_9],  nodes[NODE_1]))
     roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_4,  math.dist(nodes[NODE_9],  nodes[NODE_4]))
-    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_5,  math.dist(nodes[NODE_9],  nodes[NODE_5]))
+    roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_5,  math.dist(nodes[NODE_9],  nodes[NODE_5])) 
     roverPatrolPathPlanner.addUndirectedEdge(NODE_9,  NODE_7,  math.dist(nodes[NODE_9],  nodes[NODE_7]))
     roverPatrolPathPlanner.addUndirectedEdge(NODE_10, NODE_2,  math.dist(nodes[NODE_10], nodes[NODE_2]))
     roverPatrolPathPlanner.addUndirectedEdge(NODE_10, NODE_4,  math.dist(nodes[NODE_10], nodes[NODE_4]))
@@ -98,15 +98,16 @@ def main():
     print("* SIMULATION CASE 1: *")
     print("**********************\n")
     
-    selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0,
-                                                                                  alwaysSelectHighestProb=True, convergenceLimit = 10)
+    selectedVertices, selectedSpeeds, time = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Q=100.0, Nm=5000, β=1, gamma=1, evaporationRate=0.01, top=5.0,
+                                                                                        alwaysSelectHighestProb=False, convergenceLimit = 10)
     
     if selectedVertices is None:
-        print("No solution found.\n")
+        print("\nNo solution found.\n")
     else:
         for k in range(len(selectedVertices)):
-            print("Path for rover " + str(k) + ": " + str(list(map(lambda i : i + 1, selectedVertices[k]))))
+            print("\nPath for rover " + str(k) + ": " + str(list(map(lambda i : i + 1, selectedVertices[k]))))
             print("Path speeds for rover " + str(k) + ": " + str(selectedSpeeds[k]) + "\n")
+        print("Total completion time: " + str(time) + "\n")
     
     # # Simulate rover patrol path planning, Case 2
     # nodes = [
@@ -193,8 +194,8 @@ def main():
     # print("* SIMULATION CASE 2: *")
     # print("**********************\n")
     
-    # selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.4, top=5.0,
-    #                                                                               alwaysSelectHighestProb=False, convergenceLimit = 10)
+    # selectedVertices, selectedSpeeds, time = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=500000, β=1, gamma=1, evaporationRate=0.4, top=5.0,
+    #                                                                                     alwaysSelectHighestProb=True, convergenceLimit = 10)
     
     # if selectedVertices is None:
     #     print("No solution found.\n")
@@ -202,6 +203,7 @@ def main():
     #     for k in range(len(selectedVertices)):
     #         print("Path for rover " + str(k) + ": " + str(list(map(lambda i : i + 1, selectedVertices[k]))))
     #         print("Path speeds for rover " + str(k) + ": " + str(selectedSpeeds[k]) + "\n")
+    #     print("Total completion time: " + str(time) + "\n")
     
     # # Simulate rover patrol path planning, Case 3
     # nodes = [
@@ -337,8 +339,8 @@ def main():
     # print("* SIMULATION CASE 3: *")
     # print("**********************\n")
     
-    # selectedVertices, selectedSpeeds = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.4, top=5.0,
-    #                                                                               alwaysSelectHighestProb=True, convergenceLimit = 10)
+    # selectedVertices, selectedSpeeds, time = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Nm=500000, β=1, gamma=1, evaporationRate=0.4, top=5.0,
+    #                                                                                     alwaysSelectHighestProb=True, convergenceLimit = 10)
     
     # if selectedVertices is None:
     #     print("No solution found.\n")
@@ -346,6 +348,7 @@ def main():
     #     for k in range(len(selectedVertices)):
     #         print("Path for rover " + str(k) + ": " + str(list(map(lambda i : i + 1, selectedVertices[k]))))
     #         print("Path speeds for rover " + str(k) + ": " + str(selectedSpeeds[k]) + "\n")
+    #     print("Total completion time: " + str(time) + "\n")
 
 if __name__ == "__main__":
     main()

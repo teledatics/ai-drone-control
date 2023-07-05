@@ -247,10 +247,11 @@ class CFMTSP:
     @param {number} convergenceLimit number of consecutive successful iterations before assuming solution convergence
     @returns {ndarray} selected graph vertex path, per rover, or None if no viable solution found
              {ndarray} selected [initial] velocities, per graph vertex, or None if no viable solution found
+             {number} completion time of slowest rover
     """
     @classmethod
-    def calculateRoverPaths(self, vi, speeds, Nm=0, β=1, gamma=1, evaporationRate=0.05, top=5.0,
-                            alwaysSelectHighestProb=True, convergenceLimit = 20):
+    def calculateRoverPaths(self, vi, speeds, Q=1.0, Nm=0, β=1, gamma=1, evaporationRate=0.01, top=5.0,
+                            alwaysSelectHighestProb=True, convergenceLimit = 10):
         if self.adjMatrix.isAdjacencyMatrixEmpty():
             raise IndexError("Adjacency matrix is uninitialized!")
         if not vi:
@@ -279,7 +280,7 @@ class CFMTSP:
         
         # If Nm is not specified, choose arbitrarily large number of iterations
         if Nm < 1:
-            Nm = 1000000
+            Nm = 500000
             print("Nm value not specified, defaulting to " + str(Nm))
         
         τk = []
@@ -288,6 +289,7 @@ class CFMTSP:
         selectedVertices = None
         selectedSpeeds = None
         convergenceCount = 0
+        prev_max_tkimax = sys.float_info.max
         
         # Initialize pheromone matrices for each rover/ant "species"
         for k in range(Nu):
@@ -299,13 +301,13 @@ class CFMTSP:
             L𝜓k = [[] for _ in range(Nu)]
             Lk𝜉sel = [[] for _ in range(Nu)]
             Livis = [{node: [] for node in range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1)} for _ in range(Nu)]
-            LivisIndex = [[0] * self.adjMatrix.getDistanceMatrix().shape[0] for _ in range(Nu)]
+            # LivisIndex = [[[0] * self.adjMatrix.getDistanceMatrix().shape[0] for _ in range(Nu)] for _ in range(Nu)]
             tkimax = [0.0] * Nu
             
+            print("Running iteration " + str(r) + "...")
+            
             for k in range(Nu): # For each k-th ant species
-                # For testing/debugging
-                print("k: " + str(k) + ", r = " + str(r))
-                    
+                LivisIndex = [[0] * self.adjMatrix.getDistanceMatrix().shape[0] for _ in range(Nu)]
                 while len(Lkunv[k]) != 0:
                     
                     # CFMTSP paper pseudo-code ONLY selects first edge with no collision and then proceeds to process the augmented
@@ -347,20 +349,22 @@ class CFMTSP:
                         
                         # Update Livis lookup bookmarks
                         for v in range(len(Livis)):
-                            if v != k: # Don't need to compare ant's node visit times against self
-                                for node in range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1):
-                                    if node in Livis[v]:
-                                        for i in range(LivisIndex[v][node - 1], len(Livis[v][node])):
-                                            if (tkimax[k] > Livis[v][node][i]) and (abs(tkimax[k] - Livis[v][node][i]) > top):
-                                                LivisIndex[v][node - 1] = i if (i + 1) >= len(Livis[v][node]) else (i + 1)
-                                            else:
-                                                break # Timestamps are in increasing order so if we reach here, then we do not
-                                                      # need to finish iterating through the list of timestamps
-                    
+                            if v == k: # Don't need to compare ant's node visit times against self or future ants
+                                break
+                            for node in range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1):
+                                if node in Livis[v]:
+                                    for i in range(LivisIndex[v][node - 1], len(Livis[v][node])):
+                                        if (tkimax[k] > Livis[v][node][i]) and (abs(tkimax[k] - Livis[v][node][i]) > top):
+                                            LivisIndex[v][node - 1] = i if (i + 1) >= len(Livis[v][node]) else (i + 1)
+                                        else:
+                                            break # Timestamps are in increasing order so if we reach here, then we do not
+                                                  # need to finish iterating through the list of timestamps
+                    # END if nextAugmentedEdge:
                     if not L𝜓k[k]:
                         # Reduce pheromones along chosen path
-                        self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
-                        convergenceCount = 0 # Reset convergence counter
+                        # TODO: Need this one for non-stochastic method?
+                        # self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
+                        # convergenceCount = 0 # Reset convergence counter
                         break # "goto"; there is no "goto" command so we have to mimic the ability via a series of breaks and continues
                     # "L𝜓k <- {}" line moved to top of while loop (inside __chooseAugmentedEdge()) to support double break
                     # logic equivalent of goto
@@ -371,19 +375,28 @@ class CFMTSP:
                 # Contrary to the description in the paper, it makes more sense to move the function here instead of
                 # after the "for k in range(Nu)" loop
                 self.__calculatePheromoneTrailsAmount(k, Lk𝜉sel, τk, speeds, top, 𝜓B, 𝜉h_rowDict,
-                                                      𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict)
+                                                      𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict, Q)
+                # Evaporate current pheremone trails
+                self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
             # END for k in range(Nu)
             if not L𝜓k[k]:
                 continue # Move to top of "for r in range(Nm)" loop
             
             # Save the iteration with the minimal worst-case time
             max_tkimax = max(tkimax)
+            
+            if max_tkimax == prev_max_tkimax:
+                convergenceCount += 1
+            else:
+                convergenceCount = 0 # Reset convergence counter
+                prev_max_tkimax = max_tkimax
+                
             if max_tkimax < tkbest:
                 tkbest = max_tkimax
                 𝜓kbest = copy.deepcopy(Lk𝜉sel)
-                convergenceCount = 0 # Reset convergence counter
+                # convergenceCount = 0 # Reset convergence counter
             
-            convergenceCount += 1
+            # convergenceCount += 1
             if convergenceCount >= convergenceLimit:
                 print("\nReached convergence!\n")
                 break
@@ -429,7 +442,7 @@ class CFMTSP:
             # END for k in range(Nu):
         # END if 𝜓kbest:
         
-        return selectedVertices, selectedSpeeds
+        return selectedVertices, selectedSpeeds, tkbest
     
     ###################
     # Private Methods #
@@ -474,10 +487,6 @@ class CFMTSP:
         viableEdges = []
         L𝜉k_total = []
         bestAugmentedEdge = None
-        
-        # For debugging
-        chosen_e1_path = None
-        chosen_e2_path = None
         
         # From cold start, we need to select from all possible edges
         if not Lk𝜉sel[k]:
@@ -562,12 +571,12 @@ class CFMTSP:
         bestAugmentedEdge = self.__selectAugmentedEdge(L𝜉k_total, τk[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜂, β, gamma, alwaysSelectHighestProb, edgeStartDict, edgeEndDict, 𝜓B_rowDict)
         
         # For debugging
-        ei = 𝜓B_rowDict[𝜉h_rowDict[bestAugmentedEdge]]
-        ej = 𝜓B_rowDict[𝜉h_columnDict[bestAugmentedEdge]]
-        chosen_e1_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
-        chosen_e1_path.reverse()
-        chosen_e2_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
-        chosen_e2_path.reverse()
+        # ei = 𝜓B_rowDict[𝜉h_rowDict[bestAugmentedEdge]]
+        # ej = 𝜓B_rowDict[𝜉h_columnDict[bestAugmentedEdge]]
+        # chosen_e1_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
+        # chosen_e1_path.reverse()
+        # chosen_e2_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
+        # chosen_e2_path.reverse()
         
         return bestAugmentedEdge
     
@@ -615,12 +624,12 @@ class CFMTSP:
                 j = 𝜉h_columnDict[𝜉h]
                 
                 # For debugging
-                ei = 𝜓B_rowDict[i]
-                ej = 𝜓B_rowDict[j]
-                ei_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
-                ei_path.reverse()
-                ej_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
-                ej_path.reverse()
+                # ei = 𝜓B_rowDict[i]
+                # ej = 𝜓B_rowDict[j]
+                # ei_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
+                # ei_path.reverse()
+                # ej_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
+                # ej_path.reverse()
                 
                 𝜂_h = 𝜂[i - 1][j - 1]
                 τ_h = τ[i - 1][j - 1]
@@ -636,12 +645,12 @@ class CFMTSP:
                 j = 𝜉h_columnDict[𝜉h]
                 
                 # For debugging
-                ei = 𝜓B_rowDict[i]
-                ej = 𝜓B_rowDict[j]
-                ei_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
-                ei_path.reverse()
-                ej_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
-                ej_path.reverse()
+                # ei = 𝜓B_rowDict[i]
+                # ej = 𝜓B_rowDict[j]
+                # ei_path = self.adjMatrix.getShortestPath(edgeStartDict[ei] - 1, edgeEndDict[ei] - 1)
+                # ei_path.reverse()
+                # ej_path = self.adjMatrix.getShortestPath(edgeStartDict[ej] - 1, edgeEndDict[ej] - 1)
+                # ej_path.reverse()
                 
                 𝜂_h = 𝜂[i - 1][j - 1]
                 τ_h = τ[i - 1][j - 1]
@@ -838,15 +847,16 @@ class CFMTSP:
     """
     @classmethod
     def __calculatePheromoneTrailsAmount(self, k, L𝜉sel, τ, speeds, top, 𝜓B, 𝜉h_rowDict,
-                                         𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict):
+                                         𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict, Q):
         totalPathTime = self.__getPathTravelTime(speeds, top, 𝜓B, L𝜉sel[k], 𝜉h_rowDict, 𝜉h_columnDict, 𝜓B_rowDict,
                                                  edgeEndDict, edgeStartDict)
+        # print("CURRENT VALUE: " + str(Q/totalPathTime))
         for 𝜉h in L𝜉sel[k]:
             i = 𝜉h_rowDict[𝜉h]
             j = 𝜉h_columnDict[𝜉h]
             
             # Mutable object
-            τ[k][i - 1][j - 1] += 1/totalPathTime # Single ant of single species so we don't need to worry
+            τ[k][i - 1][j - 1] += Q/totalPathTime # Single ant of single species so we don't need to worry
                                                   # about including delta tau of other ants in 1 iteration
                                                   # TODO: Verify this is true
     
@@ -863,12 +873,14 @@ class CFMTSP:
     """
     @classmethod
     def __reducePheromoneTrailAmount(self, k, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate):
-        for 𝜉h in L𝜉sel[k]:
-            i = 𝜉h_rowDict[𝜉h]
-            j = 𝜉h_columnDict[𝜉h]
+        # for 𝜉h in L𝜉sel[k]:
+        #     i = 𝜉h_rowDict[𝜉h]
+        #     j = 𝜉h_columnDict[𝜉h]
             
-            # Mutable object
-            τ[k][i - 1][j - 1] *= (1.0 - evaporationRate)
+        #     # Mutable object
+        #     τ[k][i - 1][j - 1] *= (1.0 - evaporationRate)
+        # Mutable object
+        τ[k] *= (1.0 - evaporationRate)
     
     """
     Calculate uniform acceleration along augmented edge
@@ -917,33 +929,21 @@ class CFMTSP:
     """
     @classmethod
     def __isCollided(self, k, si, sj, top, currentTime, Livis, LivisIndex, edgeEnd, edgeDistance):
-        # completePath = self.adjMatrix.getShortestPath(edgeStart - 1, edgeEnd - 1)
-        # LivisIndexCopy = copy.deepcopy(LivisIndex)
         for v in range(len(Livis)):
-            if v != k: # Don't need to compare ant's node visit times against self
-                # prevPathTime = 0.0
-                # for pathIndex in range(len(completePath) - 1, 0, -1): # Path is in reverse order
-                #     prevNode = completePath[pathIndex] + 1
-                #     nextNode = completePath[pathIndex - 1] + 1
-                if edgeEnd in Livis[v]:
-                    # TODO: Add if condition to limit speed selection to lowest speeds for
-                    #       starting vertex? Makes sense since bots would be rolling from dead start
-                    for i in range(LivisIndex[v][edgeEnd - 1], len(Livis[v][edgeEnd])):
-                        tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
-                        tik2 = Livis[v][edgeEnd][i]
-                        if abs(tik1 - tik2) <= top: # Collision condition according to Definition 6 of CFMTSP paper
-                            # CFMTSP paper is fuzzy on the details but seems to imply that
-                            # "minimum arrival time difference" determines collision state. If that is the case,
-                            # then we just return TRUE the moment we find 1 possibility of collision among the
-                            # various combinations of velocity selections, and try another edge. However it looks like this
-                            # could lead to the [increased] possibility of the algorithm getting stuck if the bots are
-                            # clustered together. May want to consider changing the main algorithm to allow sub-set of
-                            # trajectories that will not result in a collision at the common end node.
-                            return True
-                        # if tik1 > tik2:
-                        #     LivisIndexCopy[v][edgeEnd - 1] = i if (i + 1) >= len(Livis[v][edgeEnd]) else (i + 1)
-        
-        # LivisIndex = LivisIndexCopy
+            if v == k: # Don't need to compare ant's node visit times against self or future ants
+                break
+            if edgeEnd in Livis[v]:
+                # TODO: Add if condition to limit speed selection to lowest speeds for
+                #       starting vertex? Makes sense since bots would be rolling from dead start
+                for i in range(LivisIndex[v][edgeEnd - 1], len(Livis[v][edgeEnd])):
+                    tik1 = currentTime + top + self.__getTravelTime(si, sj, edgeDistance)
+                    tik2 = Livis[v][edgeEnd][i]
+                    if abs(tik1 - tik2) <= top:
+                        return True
+                    # END if abs(tik1 - tik2) <= top:
+                # END for i in range(LivisIndex[v][edgeEnd - 1], len(Livis[v][edgeEnd])):
+            # END if edgeEnd in Livis[v]:
+        # END for v in range(len(Livis)):
         return False
     
     """
