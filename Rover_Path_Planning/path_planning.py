@@ -280,7 +280,7 @@ class CFMTSP:
         
         # If Nm is not specified, choose arbitrarily large number of iterations
         if Nm < 1:
-            Nm = 500000
+            Nm = 100000
             print("Nm value not specified, defaulting to " + str(Nm))
         
         τk = []
