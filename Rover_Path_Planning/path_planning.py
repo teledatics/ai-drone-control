@@ -251,7 +251,7 @@ class CFMTSP:
     """
     @classmethod
     def calculateRoverPaths(self, vi, speeds, Q=1.0, Nm=0, β=1, gamma=1, evaporationRate=0.01, top=5.0,
-                            alwaysSelectHighestProb=True, convergenceLimit = 10):
+                            alwaysSelectHighestProb=True, convergenceLimit = 5):
         if self.adjMatrix.isAdjacencyMatrixEmpty():
             raise IndexError("Adjacency matrix is uninitialized!")
         if not vi:
