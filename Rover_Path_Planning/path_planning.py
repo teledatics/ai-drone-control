@@ -22,6 +22,7 @@
 #   - Access to deep copy operations
 #
 # @section todo_path_planning TODO
+# - Modify CFMTSP solution to check if graph has hamiltonian cycles and perform calculations, with repeat visits not allowed, if detected
 # - Modify CFMTSP solution to accomodate NON-uniform acceleration
 # - Modify CFMTSP solution to account for speed limits needed to accomodate sharp turns; until then, keep max speed low
 # - Modify CFMTSP solution to predict dynamic top value at each vertex depending on velocities and turn angle
@@ -237,6 +238,7 @@ class CFMTSP:
     @name calculateRoverPaths
     @param {array} vi list of starting graph verticies for each rover/ant
     @param {array} speeds list of rover/ant velocity options (positive, non-zero, float values) along graph edges
+    @param {number} Q positive constant used for calculating ant pheromone delta to strengthen pheromone trails
     @param {number} Nm number of iterations/ants to run algorithm
     @param {number} β exponential factor for controlling amount of weight edge travel times have in edge selection
     @param {number} gamma exponential factor for controlling amount of weight ant pheromone levels have in edge selection
@@ -250,14 +252,16 @@ class CFMTSP:
              {number} completion time of slowest rover
     """
     @classmethod
-    def calculateRoverPaths(self, vi, speeds, Q=1.0, Nm=0, β=1, gamma=1, evaporationRate=0.01, top=5.0,
-                            alwaysSelectHighestProb=True, convergenceLimit = 5):
+    def calculateRoverPaths(self, vi, speeds, Q=100.0, Nm=0, β=1, gamma=1, evaporationRate=0.01, top=5.0,
+                            alwaysSelectHighestProb=True, convergenceLimit=5):
         if self.adjMatrix.isAdjacencyMatrixEmpty():
             raise IndexError("Adjacency matrix is uninitialized!")
         if not vi:
             raise ValueError("Starting vertex list must not be empty")
         if not speeds:
             raise ValueError("Velocity list must not be empty")
+        if Q <= 0.0:
+            raise ValueError("Q value must be a positive constant")
         if (evaporationRate < 0.0) or (evaporationRate > 1.0):
             raise ValueError("Pheromone evaporation rate must be between 0 and 1")
         if top < 0.0:
@@ -301,7 +305,6 @@ class CFMTSP:
             L𝜓k = [[] for _ in range(Nu)]
             Lk𝜉sel = [[] for _ in range(Nu)]
             Livis = [{node: [] for node in range(1, self.adjMatrix.getDistanceMatrix().shape[0] + 1)} for _ in range(Nu)]
-            # LivisIndex = [[[0] * self.adjMatrix.getDistanceMatrix().shape[0] for _ in range(Nu)] for _ in range(Nu)]
             tkimax = [0.0] * Nu
             
             print("Running iteration " + str(r) + "...")
@@ -363,9 +366,7 @@ class CFMTSP:
                     if not L𝜓k[k]:
                         # Reduce pheromones along chosen path
                         if alwaysSelectHighestProb:
-                            self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict,
-                                                              evaporationRate, alwaysSelectHighestProb)
-                        # convergenceCount = 0 # Reset convergence counter
+                            self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
                         break # "goto"; there is no "goto" command so we have to mimic the ability via a series of breaks and continues
                     # "L𝜓k <- {}" line moved to top of while loop (inside __chooseAugmentedEdge()) to support double break
                     # logic equivalent of goto
@@ -379,8 +380,8 @@ class CFMTSP:
                                                       𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict, Q)
                 if not alwaysSelectHighestProb:
                     # Evaporate all pheremone trails
-                    self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict,
-                                                      evaporationRate, alwaysSelectHighestProb)
+                    τk[k] *= (1.0 - evaporationRate)
+                
             # END for k in range(Nu)
             if not L𝜓k[k]:
                 continue # Move to top of "for r in range(Nm)" loop
@@ -397,9 +398,7 @@ class CFMTSP:
             if max_tkimax < tkbest:
                 tkbest = max_tkimax
                 𝜓kbest = copy.deepcopy(Lk𝜉sel)
-                # convergenceCount = 0 # Reset convergence counter
             
-            # convergenceCount += 1
             if convergenceCount >= convergenceLimit:
                 print("\nReached convergence!\n")
                 break
@@ -641,17 +640,6 @@ class CFMTSP:
                 if Pr𝜉h > highestProb:
                     𝜉h_select = 𝜉h
                     highestProb = Pr𝜉h
-                
-                # TODO: Fully test this out
-                # If the probability weights between 2 augmented edges happen to be equal, favor the one with
-                # a shorter non-augmented destination edge
-                elif Pr𝜉h == highestProb:
-                    j_original = 𝜉h_columnDict[𝜉h_select]
-                    j_new = 𝜉h_columnDict[𝜉h]
-                    ejOriginalDistance = self.adjMatrix.getDistanceMatrix()[edgeStartDict[𝜓B_rowDict[j_original]] - 1][edgeEndDict[𝜓B_rowDict[j_original]] - 1]
-                    ejNewDistance = self.adjMatrix.getDistanceMatrix()[edgeStartDict[𝜓B_rowDict[j_new]] - 1][edgeEndDict[𝜓B_rowDict[j_new]] - 1]
-                    if ejOriginalDistance < ejNewDistance:
-                        𝜉h_select = 𝜉h
         # METHOD 2: Select augmented edge based on non-uniform random selection
         else:
             probabilities = []
@@ -859,6 +847,7 @@ class CFMTSP:
     @param {dictionary} 𝜓B_rowDict look-up table of edge row indexes in 𝜓B
     @param {dictionary} edgeEndDict look-up table of end nodes for edges
     @param {dictionary} edgeStartDict look-up table of start nodes for edges
+    @param {number} Q positive constant used for calculating ant pheromone delta to strengthen pheromone trails
     """
     @classmethod
     def __calculatePheromoneTrailsAmount(self, k, L𝜉sel, τ, speeds, top, 𝜓B, 𝜉h_rowDict,
@@ -885,22 +874,15 @@ class CFMTSP:
     @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
     @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
     @param {number} evaporationRate evaporation rate of pheromone along agumented edge
-    @param {boolean} alwaysSelectHighestProb flag which determines if algorithm always chooses largest weighted edge
-                     or selects edge based on non-uniform distribution (i.e. Greedy & Quick vs. Slow & Optimal)
     """
     @classmethod
-    def __reducePheromoneTrailAmount(self, k, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict,
-                                     evaporationRate, alwaysSelectHighestProb):
-        if alwaysSelectHighestProb:
-            for 𝜉h in L𝜉sel[k]:
-                i = 𝜉h_rowDict[𝜉h]
-                j = 𝜉h_columnDict[𝜉h]
-                
-                # Mutable object
-                τ[k][i - 1][j - 1] *= (1.0 - evaporationRate)
-        else:
+    def __reducePheromoneTrailAmount(self, k, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate):
+        for 𝜉h in L𝜉sel[k]:
+            i = 𝜉h_rowDict[𝜉h]
+            j = 𝜉h_columnDict[𝜉h]
+            
             # Mutable object
-            τ[k] *= (1.0 - evaporationRate)
+            τ[k][i - 1][j - 1] *= (1.0 - evaporationRate)
     
     """
     Calculate uniform acceleration along augmented edge
