@@ -99,7 +99,7 @@ def main():
     print("**********************\n")
     
     selectedVertices, selectedSpeeds, time = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Q=100.0, Nm=5000, β=1, gamma=1, evaporationRate=0.01, top=5.0,
-                                                                                        alwaysSelectHighestProb=False, convergenceLimit = 5)
+                                                                                        alwaysSelectHighestProb=True, convergenceLimit = 5)
     
     if selectedVertices is None:
         print("\nNo solution found.\n")

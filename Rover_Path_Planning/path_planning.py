@@ -362,8 +362,9 @@ class CFMTSP:
                     # END if nextAugmentedEdge:
                     if not L𝜓k[k]:
                         # Reduce pheromones along chosen path
-                        # TODO: Need this one for non-stochastic method?
-                        # self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
+                        if alwaysSelectHighestProb:
+                            self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict,
+                                                              evaporationRate, alwaysSelectHighestProb)
                         # convergenceCount = 0 # Reset convergence counter
                         break # "goto"; there is no "goto" command so we have to mimic the ability via a series of breaks and continues
                     # "L𝜓k <- {}" line moved to top of while loop (inside __chooseAugmentedEdge()) to support double break
@@ -376,8 +377,10 @@ class CFMTSP:
                 # after the "for k in range(Nu)" loop
                 self.__calculatePheromoneTrailsAmount(k, Lk𝜉sel, τk, speeds, top, 𝜓B, 𝜉h_rowDict,
                                                       𝜉h_columnDict, 𝜓B_rowDict, edgeEndDict, edgeStartDict, Q)
-                # Evaporate current pheremone trails
-                self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
+                if not alwaysSelectHighestProb:
+                    # Evaporate all pheremone trails
+                    self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict,
+                                                      evaporationRate, alwaysSelectHighestProb)
             # END for k in range(Nu)
             if not L𝜓k[k]:
                 continue # Move to top of "for r in range(Nm)" loop
@@ -870,17 +873,22 @@ class CFMTSP:
     @param {dictionary} 𝜉h_rowDict look-up table of augmented edge row indexes in 𝜉B
     @param {dictionary} 𝜉h_columnDict look-up table of augmented edge column indexes in 𝜉B
     @param {number} evaporationRate evaporation rate of pheromone along agumented edge
+    @param {boolean} alwaysSelectHighestProb flag which determines if algorithm always chooses largest weighted edge
+                     or selects edge based on non-uniform distribution (i.e. Greedy & Quick vs. Slow & Optimal)
     """
     @classmethod
-    def __reducePheromoneTrailAmount(self, k, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate):
-        # for 𝜉h in L𝜉sel[k]:
-        #     i = 𝜉h_rowDict[𝜉h]
-        #     j = 𝜉h_columnDict[𝜉h]
-            
-        #     # Mutable object
-        #     τ[k][i - 1][j - 1] *= (1.0 - evaporationRate)
-        # Mutable object
-        τ[k] *= (1.0 - evaporationRate)
+    def __reducePheromoneTrailAmount(self, k, L𝜉sel, τ, 𝜉h_rowDict, 𝜉h_columnDict,
+                                     evaporationRate, alwaysSelectHighestProb):
+        if alwaysSelectHighestProb:
+            for 𝜉h in L𝜉sel[k]:
+                i = 𝜉h_rowDict[𝜉h]
+                j = 𝜉h_columnDict[𝜉h]
+                
+                # Mutable object
+                τ[k][i - 1][j - 1] *= (1.0 - evaporationRate)
+        else:
+            # Mutable object
+            τ[k] *= (1.0 - evaporationRate)
     
     """
     Calculate uniform acceleration along augmented edge
