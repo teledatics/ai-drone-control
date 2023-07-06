@@ -637,9 +637,21 @@ class CFMTSP:
                 𝜂_h = 𝜂[i - 1][j - 1]
                 τ_h = τ[i - 1][j - 1]
                 Pr𝜉h = ((𝜂_h**β) * (τ_h**gamma)) / Σneighbors
+                
                 if Pr𝜉h > highestProb:
                     𝜉h_select = 𝜉h
                     highestProb = Pr𝜉h
+                
+                # TODO: Fully test this out
+                # If the probability weights between 2 augmented edges happen to be equal, favor the one with
+                # a shorter non-augmented destination edge
+                elif Pr𝜉h == highestProb:
+                    j_original = 𝜉h_columnDict[𝜉h_select]
+                    j_new = 𝜉h_columnDict[𝜉h]
+                    ejOriginalDistance = self.adjMatrix.getDistanceMatrix()[edgeStartDict[𝜓B_rowDict[j_original]] - 1][edgeEndDict[𝜓B_rowDict[j_original]] - 1]
+                    ejNewDistance = self.adjMatrix.getDistanceMatrix()[edgeStartDict[𝜓B_rowDict[j_new]] - 1][edgeEndDict[𝜓B_rowDict[j_new]] - 1]
+                    if ejOriginalDistance < ejNewDistance:
+                        𝜉h_select = 𝜉h
         # METHOD 2: Select augmented edge based on non-uniform random selection
         else:
             probabilities = []
