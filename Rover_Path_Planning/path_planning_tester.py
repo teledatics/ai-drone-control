@@ -339,7 +339,7 @@ def main():
     print("* SIMULATION CASE 3: *")
     print("**********************\n")
     
-    selectedVertices, selectedSpeeds, time = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Q=100.0, Nm=10000, β=1, gamma=1, evaporationRate=0.01, top=5.0,
+    selectedVertices, selectedSpeeds, time = roverPatrolPathPlanner.calculateRoverPaths(vi, speeds, Q=100.0, Nm=10000, β=1, gamma=1, evaporationRate=0.05, top=5.0,
                                                                                         alwaysSelectHighestProb=True, convergenceLimit=5)
     
     if selectedVertices is None:

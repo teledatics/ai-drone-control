@@ -20,9 +20,10 @@
 #   - Access to system-specific parameters and functions
 # - copy (https://docs.python.org/3/library/copy.html)
 #   - Access to deep copy operations
+# - random (https://docs.python.org/3/library/random.html)
+#   - Access to random sampling functions
 #
 # @section todo_path_planning TODO
-# - Modify CFMTSP solution to check if graph has hamiltonian cycles and perform calculations, with repeat visits not allowed, if detected
 # - Modify CFMTSP solution to accomodate NON-uniform acceleration
 # - Modify CFMTSP solution to account for speed limits needed to accomodate sharp turns; until then, keep max speed low
 # - Modify CFMTSP solution to predict dynamic top value at each vertex depending on velocities and turn angle
@@ -31,7 +32,7 @@
 #
 # @section author_path_planning Author(s)
 # - Created by Justin Carrel on 02/26/2023
-# - Modified by Justin Carrel on 06/04/2023
+# - Modified by Justin Carrel on 07/09/2023
 #
 # @section references_path_planning References
 # - https://www.researchgate.net/publication/342492385_Novel_Graph_Model_for_Solving_Collision-Free_Multiple-Vehicle_Traveling_Salesman_Problem_Using_Ant_Colony_Optimization
@@ -43,6 +44,7 @@ import math
 import numpy as np
 import sys
 import copy
+import random
 
 class ShortestPaths:
     """
@@ -103,12 +105,64 @@ class ShortestPaths:
         self.__addDirectedEdge(node2, node1, weight)
     
     """
+    Check for existence of Hamiltonian Cycle using TSP Nearest Neighbor approximation algorithm
+    
+    @name hasHamiltonianCycle
+    @param {number} numStartVertices Maximum number of vertices to try starting the search from
+    @returns {boolean} True if Hamiltonian circuit is found within adjacency matrix; False otherwise
+    """
+    @classmethod
+    def hasHamiltonianCycle(self, numStartVertices):
+        if self.adjMatrix is None:
+            raise IndexError("Adjacency matrix is uninitialized!")
+        
+        # Since this uses an approximation algorithm, we have no guarantee that an existing cycle will be found from a particular starting node
+        # even if a cycle definitely exists. Increase our chances by choosing a large sample of starting vertices to try.
+        num_vertices = self.adjMatrix.shape[0]
+        start_vertices = range(num_vertices) if num_vertices <= numStartVertices else random.sample(range(num_vertices), numStartVertices)
+        
+        # Try all vertices as starting points
+        for start_vertex in start_vertices:
+            
+            visited = [False] * num_vertices
+            path = []
+            
+            path.append(start_vertex)
+            visited[start_vertex] = True
+        
+            while len(path) < num_vertices:
+                current_vertex = path[-1]
+                nearest_vertex = None
+                min_distance = sys.float_info.max
+            
+                # Find the nearest unvisited vertex
+                for v in range(num_vertices):
+                    if not visited[v] and self.adjMatrix[current_vertex][v] < min_distance:
+                        nearest_vertex = v
+                        min_distance = self.adjMatrix[current_vertex][v]
+            
+                if nearest_vertex is not None:
+                    path.append(nearest_vertex)
+                    visited[nearest_vertex] = True
+                else:
+                    # No unvisited neighbor from current vertex
+                    break
+            # END while len(path) < num_vertices:
+            
+            if len(path) == num_vertices:
+                return True
+        # END for start_vertex in range(num_vertices):
+        
+        return False
+    
+    """
     Compute shortest paths between all vertices
     
     @name computeShortestPaths
+    @param {boolean} hamiltonianCycleExists flag to indicate if Hamiltonian cycles exist in the graph
     """
     @classmethod
-    def computeShortestPaths(self):
+    def computeShortestPaths(self, hamiltonianCycleExists):
         if self.adjMatrix is None:
             raise IndexError("Adjacency matrix is uninitialized!")
         
@@ -119,6 +173,10 @@ class ShortestPaths:
         self.predecessorMatrix = np.full((self.adjMatrix.shape[0], self.adjMatrix.shape[1]), 0, dtype=int)
         for index, _ in np.ndenumerate(self.predecessorMatrix):
             self.predecessorMatrix[index[0]][index[1]] = index[0]
+        
+        # If Hamiltonian cycles exist; shortcut the calculations
+        if hamiltonianCycleExists:
+            return
         
         # Add vertices individually
         for k in range(self.distMatrix.shape[0]):
@@ -188,7 +246,6 @@ class ShortestPaths:
         
         # Mutable object
         self.adjMatrix[node1][node2] = weight
-
 
 class CFMTSP:
     """
@@ -271,7 +328,10 @@ class CFMTSP:
         
         # Initialize variables
         Nu = len(vi)
-        self.adjMatrix.computeShortestPaths()
+        foundHamiltonianCycles = self.adjMatrix.hasHamiltonianCycle(numStartVertices=20)
+        if (foundHamiltonianCycles):
+            print("Detected Hamiltonian cycles in graph; simplifying calculations...")
+        self.adjMatrix.computeShortestPaths(foundHamiltonianCycles)
         
         eB, edgeEndDict, edgeStartDict, numEdges = self.__createEdgeMatrix()
         𝜓B, 𝜓B_rowDict = self.__createTrajectoryAdjacencyMatrix(numEdges, len(speeds))
@@ -364,8 +424,8 @@ class CFMTSP:
                                                   # need to finish iterating through the list of timestamps
                     # END if nextAugmentedEdge:
                     if not L𝜓k[k]:
-                        # Reduce pheromones along chosen path
                         if alwaysSelectHighestProb:
+                            # Reduce pheromones along chosen path
                             self.__reducePheromoneTrailAmount(k, Lk𝜉sel, τk, 𝜉h_rowDict, 𝜉h_columnDict, evaporationRate)
                         break # "goto"; there is no "goto" command so we have to mimic the ability via a series of breaks and continues
                     # "L𝜓k <- {}" line moved to top of while loop (inside __chooseAugmentedEdge()) to support double break
@@ -427,20 +487,12 @@ class CFMTSP:
                     if 𝜉h_index < (len(𝜓kbest[k]) - 1):
                         completePath.pop()
                     
-                    # selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓i]] - 1) # Set to 0-based index
-                    # selectedSpeeds[k].append(speeds[(𝜓i - 1) % 𝜓B.shape[1]])
                     selectedVertices[k] += completePath
                     selectedSpeeds[k].append(si)
                     # Assume acceleration takes place only in first sub-branch and acceleration is zero in sub-sequent branches
                     # TODO: May want to change this for dynamic acceleration options
                     selectedSpeeds[k] += [sj] * (len(completePath) - 1)
                 # END for 𝜉h_index in range(len(𝜓kbest[k])):
-                
-                # Append the final vertex and speed which should be the origin
-                # 𝜉h = 𝜓kbest[k][-1]
-                # 𝜓j = 𝜉h_columnDict[𝜉h]
-                # selectedVertices[k].append(edgeStartDict[𝜓B_rowDict[𝜓j]] - 1) # Set to 0-based index
-                # selectedSpeeds[k].append(speeds[(𝜓j - 1) % 𝜓B.shape[1]])
             # END for k in range(Nu):
         # END if 𝜓kbest:
         
@@ -862,7 +914,6 @@ class CFMTSP:
             # Mutable object
             τ[k][i - 1][j - 1] += Q/totalPathTime # Single ant of single species so we don't need to worry
                                                   # about including delta tau of other ants in 1 iteration
-                                                  # TODO: Verify this is true
     
     """
     Reduces phermone along augmented route of pheromone matrix
