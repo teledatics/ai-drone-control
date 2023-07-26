@@ -112,14 +112,19 @@ class ShortestPaths:
     @returns {boolean} True if Hamiltonian circuit is found within adjacency matrix; False otherwise
     """
     @classmethod
-    def hasHamiltonianCycle(self, numStartVertices):
+    def hasHamiltonianCycle(self, numStartVertices=0):
         if self.adjMatrix is None:
             raise IndexError("Adjacency matrix is uninitialized!")
+        if numStartVertices <= 0:
+            numStartVertices = self.adjMatrix.shape[0]
         
         # Since this uses an approximation algorithm, we have no guarantee that an existing cycle will be found from a particular starting node
-        # even if a cycle definitely exists. Increase our chances by choosing a large sample of starting vertices to try.
+        # even if a cycle definitely exists. Increase our chances by choosing a large [random] sample of starting vertices to try.
         num_vertices = self.adjMatrix.shape[0]
-        start_vertices = range(num_vertices) if num_vertices <= numStartVertices else random.sample(range(num_vertices), numStartVertices)
+        if num_vertices <= numStartVertices:
+            start_vertices = np.random.permutation(num_vertices).tolist()
+        else:
+            start_vertices = random.sample(range(num_vertices), numStartVertices)
         
         # Try all vertices as starting points
         for start_vertex in start_vertices:
@@ -328,7 +333,8 @@ class CFMTSP:
         
         # Initialize variables
         Nu = len(vi)
-        foundHamiltonianCycles = self.adjMatrix.hasHamiltonianCycle(numStartVertices=20)
+        # NOTE: This will run in O(V^3) time. Set numStartVertices to a reasonable positive constant to change to O(V^2) time
+        foundHamiltonianCycles = self.adjMatrix.hasHamiltonianCycle(numStartVertices=0)
         if (foundHamiltonianCycles):
             print("Detected Hamiltonian cycles in graph; simplifying calculations...")
         self.adjMatrix.computeShortestPaths(foundHamiltonianCycles)
