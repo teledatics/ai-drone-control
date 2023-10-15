@@ -18,9 +18,12 @@ AI drone &amp; rover control system code repository. It includes the following m
         3. Path Planner
             - **Description:** Algorithms for calculating optimal rover patrol routes based on outputs from above modules. Implements multi-traveling salesman and A-star solutions.
             - **Status:** In Progress
-4. Drone Control
+4. Google Map Visual Navigation
+    - **Description:** Algorithm for drone to estimate GPS location via localized image recognition against onboard Google Map.
+    - **Status:** In Progress
+5. Drone Control
     - **Description:** Real-time drone control system code.
     - **Status:** Pending
-5. Rover Control
+6. Rover Control
     - **Description:** Real-time rover control system code.
     - **Status:** Pending
