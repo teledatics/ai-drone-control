@@ -56,7 +56,7 @@ class PositionEstimator:
     @name __init__
     """
     def __init__(self, googleMapImg):
-        self.googleMapImg = googleMapImg
+        self.grayGoogleMapImg = cv2.cvtColor(googleMapImg, cv2.COLOR_BGR2GRAY)
         self.currentPosition = None
         
         # HOG parameters
@@ -64,22 +64,20 @@ class PositionEstimator:
         self.block_size = (2, 2)  # Size of each block in cells
         self.nbins = 9  # Number of histogram bins
         
-        self.HOGFeatureLookupTable = self.__getHogImage(self.__getHogDescriptor(self.googleMapImg))
+        self.HOGFeatureLookupTable = self.__getHOGFeature(self.grayGoogleMapImg)
     
     @classmethod
-    def initGlobalLocalization(self, droneImg):
+    def initGlobalLocalization(self, grayDroneImg):
         # TODO: normalize image frame based on drone telemetry
         
         # Get 2D Fourier transform of input image
-        f = cv2.cvtColor(droneImg, cv2.COLOR_BGR2GRAY)
-        f, pad_top, pad_bottom, pad_left, pad_right = self.__zeroPadImg(f, self.googleMapImg.shape)
+        f, _, _, _, _ = self.__zeroPadImg(grayDroneImg, self.grayGoogleMapImg.shape)
         f = f.astype(np.float32)
         f = self.__preProcess(f)
         F = np.fft.fft2(f)
         
         # Get complex conjugate of 2D Fourier transform of map
-        h = cv2.cvtColor(self.googleMapImg, cv2.COLOR_BGR2GRAY)
-        h = h.astype(np.float32)
+        h = self.grayGoogleMapImg.astype(np.float32)
         h = self.__preProcess(h)
         H_compConj = np.conjugate(np.fft.fft2(h)) # H*
         
@@ -88,15 +86,15 @@ class PositionEstimator:
         
         # TODO: Determine if this step is necessary
         # Crop the result to the size of the larger image
-        yPad = (cross_correlation.shape[0] - self.googleMapImg.shape[0]) // 2
-        xPad = (cross_correlation.shape[1] - self.googleMapImg.shape[1]) // 2
+        yPad = (cross_correlation.shape[0] - self.grayGoogleMapImg.shape[0]) // 2
+        xPad = (cross_correlation.shape[1] - self.grayGoogleMapImg.shape[1]) // 2
         if yPad > 0:
             cross_correlation = cross_correlation[yPad : cross_correlation.shape[0] - yPad,:]
         if xPad > 0:
             cross_correlation = cross_correlation[:,xPad : cross_correlation.shape[1] - xPad]
         
         # Crop the result to the size of the larger image
-        # if cross_correlation.shape != self.googleMapImg.shape:
+        # if cross_correlation.shape != self.grayGoogleMapImg.shape:
         #     cross_correlation = cross_correlation[pad_top : cross_correlation.shape[0] - pad_bottom,
         #                                           pad_left : cross_correlation.shape[1] - pad_right]
         
@@ -156,9 +154,13 @@ class PositionEstimator:
         return paddedImg, pad_top, pad_bottom, pad_left, pad_right
     
     @classmethod
-    def __getHogDescriptor(self, img):
+    def __getHOGFeature(self, img):
+        return self.__getHogImage(self.__getHogDescriptor(img))
+    
+    @classmethod
+    def __getHogDescriptor(self, grayScale):
         # Convert map to grayscale
-        grayScale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # grayScale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         
         # Calculate HOG descriptors
         hog = cv2.HOGDescriptor(_winSize=(grayScale.shape[1] // self.cell_size[1] * self.cell_size[1],
@@ -212,3 +214,74 @@ class PositionEstimator:
                             # Draw the arrow representing the gradient
                             cv2.line(hogImage, (cx * scale, cy * scale), (x_endpoint * scale, y_endpoint * scale), 255, 1)
         return hogImage
+    
+    @classmethod
+    def __computeTranslationVector(self, grayFrame1, grayFrame2, height, yawAngleRad, pitchAngleRad, rollAngleRad, Rbn_t0, prevPts = None):
+        h = abs(height)
+        H, newPts = self.__computeHomographyMatrix(grayFrame1, grayFrame2, prevPts)
+        R, Rbn_t = self.__computeRotationMatrix(yawAngleRad, pitchAngleRad, rollAngleRad, Rbn_t0)
+        N = self.__computeNormalVector(Rbn_t0)
+        T = np.dot(h * (H - R), N)
+        return T, newPts, Rbn_t
+    
+    @classmethod
+    def __computeHomographyMatrix(self, grayFrame1, grayFrame2, prevPts = None):
+        # Convert frames to grayscale
+        # grayFrame1 = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
+        # grayFrame2 = cv2.cvtColor(frame2, cv2.COLOR_BGR2GRAY)
+        
+        # Compute optical flow using Shi-Tomasi corner detector and [iterative] Lucas-Kanade method
+        lk_params = dict(winSize=(15, 15), maxLevel=2, criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+        if (prevPts is None):
+            prevPts = cv2.goodFeaturesToTrack(grayFrame1, maxCorners=100, qualityLevel=0.3, minDistance=7, blockSize=7)
+        newPts, status, err = cv2.calcOpticalFlowPyrLK(grayFrame1, grayFrame2, prevPts, None, **lk_params)
+        
+        # Filter and match key points
+        goodPtsPrev = prevPts[status == 1]
+        goodPtsNew = newPts[status == 1]
+        
+        # Estimate the homography matrix
+        H, _ = cv2.findHomography(goodPtsPrev, goodPtsNew, cv2.RANSAC, 5.0)
+        
+        # Return the homography matrix and the new points for successive iterative calculations
+        return H, goodPtsNew.reshape(-1, 1, 2)
+    
+    @classmethod
+    def __computeNormalVector(self, Rbn_t0):
+        e3 = np.array[0, 0, 1]
+        # N = Rbn(t0) @ e3
+        return np.dot(Rbn_t0, e3)
+    
+    @classmethod
+    def __computeRotationMatrix(self, yawAngleRad, pitchAngleRad, rollAngleRad, Rbn_t0):
+        Rbn_t = self.__computeRbnMatrix(yawAngleRad, pitchAngleRad, rollAngleRad)
+        return Rbn_t @ np.transpose(Rbn_t0), Rbn_t
+    
+    @classmethod
+    def __computeRbnMatrix(self, yawAngleRad, pitchAngleRad, rollAngleRad):
+        # Compute yaw rotation matrix Rz(α)
+        cosα_rad = np.cos(yawAngleRad)
+        sinα_rad = np.sin(yawAngleRad)
+        Rz_α = np.array([[cosα_rad, -sinα_rad, 0],
+                         [sinα_rad, cosα_rad, 0],
+                         [0, 0, 1]])
+        
+        # Compute pitch rotation matrix Ry(β)
+        cosβ_rad = np.cos(pitchAngleRad)
+        sinβ_rad = np.sin(pitchAngleRad)
+        Ry_β = np.array([[cosβ_rad, 0, sinβ_rad],
+                         [0, 1, 0],
+                         [-sinβ_rad, 0, cosβ_rad]])
+        
+        # Compute roll rotation matrix Rx(γ)
+        cosγ_rad = np.cos(rollAngleRad)
+        sinγ_rad = np.sin(rollAngleRad)
+        Rx_γ = np.array([[1, 0, 0],
+                         [0, cosγ_rad, -sinγ_rad],
+                         [0, sinγ_rad, cosγ_rad]])
+        
+        # Rnb = Rz(α)Ry(β)Rx(γ)
+        Rnb = Rz_α @ Ry_β @ Rx_γ
+        
+        # Rbn = transpose(Rnb)
+        return np.transpose(Rnb)
