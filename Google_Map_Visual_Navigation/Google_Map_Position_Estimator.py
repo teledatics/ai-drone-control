@@ -155,7 +155,7 @@ class PositionEstimator:
     
     @classmethod
     def __getHOGFeature(self, img):
-        return self.__getHogImage(self.__getHogDescriptor(img))
+        return self.__getHogImage(self.__getHogDescriptor(img), img.shape)
     
     @classmethod
     def __getHogDescriptor(self, grayScale):
@@ -177,16 +177,22 @@ class PositionEstimator:
         # hogDescriptor /= np.linalg.norm(hogDescriptor)
         
         # Reshape the HOG features to match the cell layout (num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins)
-        hogDescriptor = hogDescriptor.reshape((grayScale.shape[0] // self.cell_size[0] - 1,
-                                               grayScale.shape[1] // self.cell_size[1] - 1,
-                                               self.block_size[1],
-                                               self.block_size[0],
-                                               self.nbins))
+        # hogDescriptor = hogDescriptor.reshape((grayScale.shape[0] // self.cell_size[0] - 1,
+        #                                        grayScale.shape[1] // self.cell_size[1] - 1,
+        #                                        self.block_size[1],
+        #                                        self.block_size[0],
+        #                                        self.nbins))
         
         return hogDescriptor
     
     @classmethod
-    def __getHogImage(self, hogFeatures, scale=1):
+    def __getHogImage(self, hogDescriptor, imgShape, scale=1):
+        # Reshape the HOG features to match the cell layout (num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins)
+        hogFeatures = hogDescriptor.reshape((imgShape[0] // self.cell_size[0] - 1,
+                                             imgShape[1] // self.cell_size[1] - 1,
+                                             self.block_size[1],
+                                             self.block_size[0],
+                                             self.nbins))
         num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins = hogFeatures.shape
         cell_width = self.cell_size[0]
         cell_height = self.cell_size[1]
@@ -214,6 +220,20 @@ class PositionEstimator:
                             # Draw the arrow representing the gradient
                             cv2.line(hogImage, (cx * scale, cy * scale), (x_endpoint * scale, y_endpoint * scale), 255, 1)
         return hogImage
+    
+    @classmethod
+    def __computePointVelocity(self, translationVector, droneRotationalVelocityRads, x, y, Z, focalLength): # Z is altitude, typically from barometer
+        Tx = translationVector[0, 0]
+        Ty = translationVector[0, 1]
+        Tz = translationVector[0, 2]
+        ωx = droneRotationalVelocityRads[0, 0]
+        ωy = droneRotationalVelocityRads[0, 1]
+        ωz = droneRotationalVelocityRads[0, 2]
+        
+        vx = (Tz*x - Tx*focalLength)/Z - ωy*focalLength + ωz*y + (ωx*x*y - ωy*x**2)/focalLength
+        vy = (Tz*y - Ty*focalLength)/Z + ωx*focalLength - ωz*x + (ωx*y**2 - ωy*x*y)/focalLength
+        
+        return vx, vy
     
     @classmethod
     def __computeTranslationVector(self, grayFrame1, grayFrame2, height, yawAngleRad, pitchAngleRad, rollAngleRad, Rbn_t0, prevPts = None):
