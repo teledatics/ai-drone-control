@@ -60,11 +60,11 @@ class PositionEstimator:
         self.currentPosition = None
         
         # HOG parameters
-        self.cell_size = (8, 8)  # Size of each cell in pixels
-        self.block_size = (2, 2)  # Size of each block in cells
+        self.cell_size = (32, 32)  # Size of each cell in pixels
+        self.block_size = (64, 64)  # Size of each block in cells
         self.nbins = 9  # Number of histogram bins
         
-        self.HOGFeatureLookupTable = self.__getHOGFeature(self.grayGoogleMapImg)
+        self.MapHogDescriptor, self.MapHog = self.__getHogDescriptor(self.grayGoogleMapImg)
     
     @classmethod
     def initGlobalLocalization(self, grayDroneImg):
@@ -154,10 +154,6 @@ class PositionEstimator:
         return paddedImg, pad_top, pad_bottom, pad_left, pad_right
     
     @classmethod
-    def __getHOGFeature(self, img):
-        return self.__getHogImage(self.__getHogDescriptor(img), img.shape)
-    
-    @classmethod
     def __getHogDescriptor(self, grayScale):
         # Convert map to grayscale
         # grayScale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -176,24 +172,41 @@ class PositionEstimator:
         # Normalize HOG features
         # hogDescriptor /= np.linalg.norm(hogDescriptor)
         
-        # Reshape the HOG features to match the cell layout (num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins)
-        # hogDescriptor = hogDescriptor.reshape((grayScale.shape[0] // self.cell_size[0] - 1,
-        #                                        grayScale.shape[1] // self.cell_size[1] - 1,
-        #                                        self.block_size[1],
-        #                                        self.block_size[0],
-        #                                        self.nbins))
+        return hogDescriptor, hog
+    
+    # NOTE: Comparison of sub-image to larger image via HOG descriptor is typically at block level, not cell
+    @classmethod
+    def __getHOGMapDescriptorCellBlockFromPixelXY(self, x, y):
+        # Determine the cell that the pixel (x, y) belongs to
+        cell_x = x // self.cell_size[0]
+        cell_y = y // self.cell_size[1]
         
-        return hogDescriptor
+        # Calculate the HOG block that contains the cell
+        block_x = cell_x // self.block_size[0]
+        block_y = cell_y // self.block_size[1]
+        
+        # Calculate the relative position of the pixel within the block
+        # relative_x = (x % self.cell_size[0]) / self.cell_size[0]
+        # relative_y = (y % self.cell_size[1]) / self.cell_size[1]
+        
+        # Get the HOG descriptor for the specified block and the histogram bin
+        # block_descriptor = self.MapHogDescriptor[block_y, block_x]
+        # histogram_bin = int(relative_x * self.MapHog.nbins)
+        
+        # Access the specific HOG value for the pixel (x, y) in the specified block and bin
+        # hog_value = block_descriptor[histogram_bin]
+        
+        return cell_x, cell_y, block_x, block_y
     
     @classmethod
     def __getHogImage(self, hogDescriptor, imgShape, scale=1):
         # Reshape the HOG features to match the cell layout (num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins)
-        hogFeatures = hogDescriptor.reshape((imgShape[0] // self.cell_size[0] - 1,
-                                             imgShape[1] // self.cell_size[1] - 1,
-                                             self.block_size[1],
-                                             self.block_size[0],
-                                             self.nbins))
-        num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins = hogFeatures.shape
+        hogDescriptorReshaped = hogDescriptor.reshape((imgShape[0] // self.cell_size[0] - 1,
+                                                       imgShape[1] // self.cell_size[1] - 1,
+                                                       self.block_size[1],
+                                                       self.block_size[0],
+                                                       self.nbins))
+        num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins = hogDescriptorReshaped.shape
         cell_width = self.cell_size[0]
         cell_height = self.cell_size[1]
         
@@ -211,7 +224,7 @@ class PositionEstimator:
                         
                             # Calculate the angle and magnitude of the gradient
                             angle_rad = (angle + 0.5) * np.pi / num_bins
-                            magnitude = hogFeatures[y, x, a, b, angle]
+                            magnitude = hogDescriptorReshaped[y, x, a, b, angle]
                         
                             # Calculate the endpoint of the gradient vector
                             x_endpoint = int(cx + magnitude * cell_width / 2 * np.cos(angle_rad))
