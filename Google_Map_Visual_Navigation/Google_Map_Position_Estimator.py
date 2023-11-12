@@ -37,6 +37,7 @@
 
 import numpy as np
 import cv2
+import math
 
 class PositionEstimator:
     """
@@ -64,25 +65,26 @@ class PositionEstimator:
         self.block_size = (64, 64)  # Size of each block in cells
         self.nbins = 9  # Number of histogram bins
         
-        self.MapHogDescriptor, self.MapHog = self.__getHogDescriptor(self.grayGoogleMapImg)
+        self.MapHogDescriptor, self.MapHog = GetHogDescriptor(self.grayGoogleMapImg, self.cell_size, self.block_size, self.nbins)
+        # self.MapHogDescriptorFlattened = self.MapHogDescriptor.flatten()
     
     @classmethod
     def initGlobalLocalization(self, grayDroneImg):
         # TODO: normalize image frame based on drone telemetry
         
         # Get 2D Fourier transform of input image
-        f, _, _, _, _ = self.__zeroPadImg(grayDroneImg, self.grayGoogleMapImg.shape)
+        f, _, _, _, _ = ZeroPadImg(grayDroneImg, self.grayGoogleMapImg.shape)
         f = f.astype(np.float32)
-        f = self.__preProcess(f)
+        f = PreProcess(f)
         F = np.fft.fft2(f)
         
         # Get complex conjugate of 2D Fourier transform of map
         h = self.grayGoogleMapImg.astype(np.float32)
-        h = self.__preProcess(h)
+        h = PreProcess(h)
         H_compConj = np.conjugate(np.fft.fft2(h)) # H*
         
         # Perform cross-correlation in the frequency domain (G = F ⊙ H*)
-        cross_correlation = self.__linearMapping(np.fft.ifft2(F * H_compConj))
+        cross_correlation = LinearMapping(np.fft.ifft2(F * H_compConj))
         
         # TODO: Determine if this step is necessary
         # Crop the result to the size of the larger image
@@ -105,134 +107,6 @@ class PositionEstimator:
     ###################
     # Private Methods #
     ###################
-    
-    @classmethod
-    # pre-processing the image...
-    def __preProcess(self, img):
-        # get the size of the img...
-        height, width = img.shape
-        img = np.log(img + 1)
-        img = (img - np.mean(img)) / (np.std(img) + 1e-5)
-        # use the hanning window...
-        window = self.__windowFunc2d(height, width)
-        img = img * window
-
-        return img
-    
-    @classmethod
-    def __windowFunc2d(self, height, width):
-        win_col = np.hanning(width)
-        win_row = np.hanning(height)
-        mask_col, mask_row = np.meshgrid(win_col, win_row)
-
-        win = mask_col * mask_row
-
-        return win
-    
-    @classmethod
-    def __linearMapping(img):
-        return (img - img.min()) / (img.max() - img.min())
-    
-    @classmethod
-    def __zeroPadImg(self, img, targetShape):
-        # Get the current shape of the input image
-        originalShape = img.shape
-        
-        # Compute the padding amounts for both dimensions (height and width)
-        pad_height = targetShape[0] - originalShape[0]
-        pad_width = targetShape[1] - originalShape[1]
-        
-        # Calculate the padding for each side (top, bottom, left, right)
-        pad_top = pad_height // 2
-        pad_bottom = pad_height - pad_top
-        pad_left = pad_width // 2
-        pad_right = pad_width - pad_left
-        
-        # Use openCV's copyMakeBorder to perform zero-padding
-        paddedImg = cv2.copyMakeBorder(img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0)
-        
-        return paddedImg, pad_top, pad_bottom, pad_left, pad_right
-    
-    @classmethod
-    def __getHogDescriptor(self, grayScale):
-        # Convert map to grayscale
-        # grayScale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Calculate HOG descriptors
-        hog = cv2.HOGDescriptor(_winSize=(grayScale.shape[1] // self.cell_size[1] * self.cell_size[1],
-                                          grayScale.shape[0] // self.cell_size[0] * self.cell_size[0]),
-                                _blockSize=(self.block_size[1] * self.cell_size[1],
-                                            self.block_size[0] * self.cell_size[0]),
-                                _blockStride=(self.cell_size[1], self.cell_size[0]),
-                                _cellSize=(self.cell_size[1], self.cell_size[0]),
-                                _nbins=self.nbins)
-        
-        hogDescriptor = hog.compute(grayScale)
-        
-        # Normalize HOG features
-        # hogDescriptor /= np.linalg.norm(hogDescriptor)
-        
-        return hogDescriptor, hog
-    
-    # NOTE: Comparison of sub-image to larger image via HOG descriptor is typically at block level, not cell
-    @classmethod
-    def __getHOGMapDescriptorCellBlockFromPixelXY(self, x, y):
-        # Determine the cell that the pixel (x, y) belongs to
-        cell_x = x // self.cell_size[0]
-        cell_y = y // self.cell_size[1]
-        
-        # Calculate the HOG block that contains the cell
-        block_x = cell_x // self.block_size[0]
-        block_y = cell_y // self.block_size[1]
-        
-        # Calculate the relative position of the pixel within the block
-        # relative_x = (x % self.cell_size[0]) / self.cell_size[0]
-        # relative_y = (y % self.cell_size[1]) / self.cell_size[1]
-        
-        # Get the HOG descriptor for the specified block and the histogram bin
-        # block_descriptor = self.MapHogDescriptor[block_y, block_x]
-        # histogram_bin = int(relative_x * self.MapHog.nbins)
-        
-        # Access the specific HOG value for the pixel (x, y) in the specified block and bin
-        # hog_value = block_descriptor[histogram_bin]
-        
-        return cell_x, cell_y, block_x, block_y
-    
-    @classmethod
-    def __getHogImage(self, hogDescriptor, imgShape, scale=1):
-        # Reshape the HOG features to match the cell layout (num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins)
-        hogDescriptorReshaped = hogDescriptor.reshape((imgShape[0] // self.cell_size[0] - 1,
-                                                       imgShape[1] // self.cell_size[1] - 1,
-                                                       self.block_size[1],
-                                                       self.block_size[0],
-                                                       self.nbins))
-        num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins = hogDescriptorReshaped.shape
-        cell_width = self.cell_size[0]
-        cell_height = self.cell_size[1]
-        
-        # Create an empty image to draw the HOG visualization
-        hogImage = np.zeros((num_cells_y * cell_height * scale, num_cells_x * cell_width * scale))
-        
-        for x in range(num_cells_x):
-            for y in range(num_cells_y):
-                for b in range(num_blocks_x):
-                    for a in range(num_blocks_y):
-                        for angle in range(num_bins):
-                            # Compute the center of the cell
-                            cx = x * cell_width + cell_width // 2
-                            cy = y * cell_height + cell_height // 2
-                        
-                            # Calculate the angle and magnitude of the gradient
-                            angle_rad = (angle + 0.5) * np.pi / num_bins
-                            magnitude = hogDescriptorReshaped[y, x, a, b, angle]
-                        
-                            # Calculate the endpoint of the gradient vector
-                            x_endpoint = int(cx + magnitude * cell_width / 2 * np.cos(angle_rad))
-                            y_endpoint = int(cy + magnitude * cell_height / 2 * np.sin(angle_rad))
-                        
-                            # Draw the arrow representing the gradient
-                            cv2.line(hogImage, (cx * scale, cy * scale), (x_endpoint * scale, y_endpoint * scale), 255, 1)
-        return hogImage
     
     @classmethod
     def __computePointVelocity(self, translationVector, droneRotationalVelocityRads, x, y, Z, focalLength): # Z is altitude, typically from barometer
@@ -318,3 +192,189 @@ class PositionEstimator:
         
         # Rbn = transpose(Rnb)
         return np.transpose(Rnb)
+
+
+
+class ParticleFilter:
+    def __init__(self,
+                 num_particles,
+                 searchSquareSideLength,
+                 searchInterval,
+                 Hx,
+                 Hy,
+                 googleMapHOGDescriptorFlattened,
+                 currentFrameHOGDescriptorFlattened,
+                 cellSize,
+                 mapShape,
+                 τd):
+        self.num_particles = num_particles
+        self.Hx = Hx
+        self.Hy = Hy
+        self.googleMapHOGDescriptorFlattened = googleMapHOGDescriptorFlattened
+        self.currentFrameHOGDescriptorFlattened = currentFrameHOGDescriptorFlattened
+        self.cellSize = cellSize
+        self.mapShape = mapShape
+        self.particles = np.empty((num_particles, 2)) # Initialize particles
+        self.particles[:, 0] = np.random.uniform(0, searchSquareSideLength, num_particles) // searchInterval * searchInterval
+        self.particles[:, 1] = np.random.uniform(0, searchSquareSideLength, num_particles) // searchInterval * searchInterval
+        self.τd = τd
+    
+    @classmethod
+    def run(self):
+        # TODO: CONTINUE HERE
+        return None
+    
+    @classmethod
+    def __distance(self, x, y):
+        # Calculate Euclidean distance between reference and candidate descriptors
+        candidateRegionDescriptor = ExtractSubImageHOG(self.googleMapHOGDescriptorFlattened, self.mapShape, self.cellSize, x, y, self.Hy, self.Hx)
+        return np.linalg.norm(self.currentFrameHOGDescriptorFlattened - candidateRegionDescriptor)
+    
+    @classmethod
+    def __gaussianLikelihood(self, distances, σ):
+        # Calculate Gaussian likelihoods
+        likelihoods = (1/math.sqrt(2*math.pi*σ**2)) * np.exp(-0.5 * (distances**2) / (σ**2))
+        
+        # Normalize the likelihoods
+        total_likelihood = np.sum(likelihoods)
+        if total_likelihood != 0:
+            likelihoods /= total_likelihood
+        
+        return likelihoods
+
+#####################
+# Utility Functions #
+#####################
+
+# pre-processing the image...
+def PreProcess(img):
+    # get the size of the img...
+    height, width = img.shape
+    img = np.log(img + 1)
+    img = (img - np.mean(img)) / (np.std(img) + 1e-5)
+    # use the hanning window...
+    window = WindowFunc2d(height, width)
+    img = img * window
+
+    return img
+    
+def WindowFunc2d(height, width):
+    win_col = np.hanning(width)
+    win_row = np.hanning(height)
+    mask_col, mask_row = np.meshgrid(win_col, win_row)
+
+    win = mask_col * mask_row
+
+    return win
+    
+def LinearMapping(img):
+    return (img - img.min()) / (img.max() - img.min())
+    
+def ZeroPadImg(img, targetShape):
+    # Get the current shape of the input image
+    originalShape = img.shape
+    
+    # Compute the padding amounts for both dimensions (height and width)
+    pad_height = targetShape[0] - originalShape[0]
+    pad_width = targetShape[1] - originalShape[1]
+    
+    # Calculate the padding for each side (top, bottom, left, right)
+    pad_top = pad_height // 2
+    pad_bottom = pad_height - pad_top
+    pad_left = pad_width // 2
+    pad_right = pad_width - pad_left
+        
+    # Use openCV's copyMakeBorder to perform zero-padding
+    paddedImg = cv2.copyMakeBorder(img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0)
+        
+    return paddedImg, pad_top, pad_bottom, pad_left, pad_right
+    
+def GetHogDescriptor(grayScale, cellSize, blockSize, nbins):
+    # Convert map to grayscale
+    # grayScale = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+    # Calculate HOG descriptors
+    hog = cv2.HOGDescriptor(_winSize=(grayScale.shape[1] // cellSize[1] * cellSize[1],
+                                      grayScale.shape[0] // cellSize[0] * cellSize[0]),
+                            _blockSize=(blockSize[1] * cellSize[1],
+                                        blockSize[0] * cellSize[0]),
+                            _blockStride=(cellSize[1], cellSize[0]),
+                            _cellSize=(cellSize[1], cellSize[0]),
+                            _nbins=nbins)
+    
+    hogDescriptor = hog.compute(grayScale)
+        
+    # Normalize HOG features
+    # hogDescriptor /= np.linalg.norm(hogDescriptor)
+        
+    return hogDescriptor, hog
+
+def ExtractSubImageHOG(hogDescriptorFlattened, full_image_shape, cell_size, x, y, h, w):
+    """
+    Extract the HOG descriptor of a sub-image.
+    
+    WARNING: does not take into account cases where sub-image does not align perfectly with cell boundaries
+             and does not consider block normalization.
+
+    :param hog_descriptor: The HOG descriptor of the full image.
+    :param full_image_shape: The shape of the full image (height, width).
+    :param cell_size: The size of each cell (height, width).
+    :param x, y: The top-left coordinates of the sub-image.
+    :param h, w: The height and width of the sub-image.
+    :return: The HOG descriptor of the sub-image.
+    """
+
+    # Calculate the number of cells in the full image
+    num_cells_x = full_image_shape[1] // cell_size[1]
+
+    # Calculate the range of cells covered by the sub-image
+    start_cell_x = x // cell_size[1]
+    start_cell_y = y // cell_size[0]
+    end_cell_x = (x + w) // cell_size[1]
+    end_cell_y = (y + h) // cell_size[0]
+
+    # Extract the relevant portion of the HOG descriptor
+    # Note: The actual extraction depends on how the hog_descriptor is structured
+    sub_hog = []
+    for i in range(start_cell_y, end_cell_y):
+        for j in range(start_cell_x, end_cell_x):
+            cell_index = i * num_cells_x + j
+            cell_features = hogDescriptorFlattened[cell_index]  # Extract cell features
+            sub_hog.append(cell_features)
+
+    return np.concatenate(sub_hog)
+    
+def GetHogImage(hogDescriptor, imgShape, cellSize, blockSize, nbins, scale=1):
+    # Reshape the HOG features to match the cell layout (num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins)
+    hogDescriptorReshaped = hogDescriptor.reshape((imgShape[0] // cellSize[0] - 1,
+                                                   imgShape[1] // cellSize[1] - 1,
+                                                   blockSize[1],
+                                                   blockSize[0],
+                                                   nbins))
+    num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins = hogDescriptorReshaped.shape
+    cell_width = cellSize[0]
+    cell_height = cellSize[1]
+        
+    # Create an empty image to draw the HOG visualization
+    hogImage = np.zeros((num_cells_y * cell_height * scale, num_cells_x * cell_width * scale))
+        
+    for x in range(num_cells_x):
+        for y in range(num_cells_y):
+            for b in range(num_blocks_x):
+                for a in range(num_blocks_y):
+                    for angle in range(num_bins):
+                        # Compute the center of the cell
+                        cx = x * cell_width + cell_width // 2
+                        cy = y * cell_height + cell_height // 2
+                        
+                        # Calculate the angle and magnitude of the gradient
+                        angle_rad = (angle + 0.5) * np.pi / num_bins
+                        magnitude = hogDescriptorReshaped[y, x, a, b, angle]
+                        
+                        # Calculate the endpoint of the gradient vector
+                        x_endpoint = int(cx + magnitude * cell_width / 2 * np.cos(angle_rad))
+                        y_endpoint = int(cy + magnitude * cell_height / 2 * np.sin(angle_rad))
+                    
+                        # Draw the arrow representing the gradient
+                        cv2.line(hogImage, (cx * scale, cy * scale), (x_endpoint * scale, y_endpoint * scale), 255, 1)
+    return hogImage
