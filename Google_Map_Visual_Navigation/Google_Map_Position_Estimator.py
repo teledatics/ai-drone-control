@@ -59,6 +59,7 @@ class PositionEstimator:
     def __init__(self, googleMapImg):
         self.grayGoogleMapImg = cv2.cvtColor(googleMapImg, cv2.COLOR_BGR2GRAY)
         self.currentPosition = None
+        self.Rbn_t0 = None
         
         # HOG parameters
         self.cell_size = (32, 32)  # Size of each cell in pixels
@@ -69,7 +70,7 @@ class PositionEstimator:
         # self.MapHogDescriptorFlattened = self.MapHogDescriptor.flatten()
     
     @classmethod
-    def initGlobalLocalization(self, grayDroneImg):
+    def initGlobalLocalization(self, grayDroneImg, yawAngleRad, pitchAngleRad, rollAngleRad):
         # TODO: normalize image frame based on drone telemetry
         
         # Get 2D Fourier transform of input image
@@ -103,6 +104,9 @@ class PositionEstimator:
         # Find max (i.e. current) position
         max_pos = np.where(cross_correlation == np.max(cross_correlation))
         self.currentPosition = max_pos[1], max_pos[0] # x,y
+        
+        # Get initial Rbn matrix at time of drone snapshot
+        self.Rbn_t0 = self.__computeRbnMatrix(yawAngleRad, pitchAngleRad, rollAngleRad)
     
     ###################
     # Private Methods #
