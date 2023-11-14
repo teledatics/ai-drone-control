@@ -56,7 +56,7 @@ class PositionEstimator:
     
     @name __init__
     """
-    def __init__(self, googleMapImg):
+    def __init__(self, googleMapImg, Hx, Hy):
         self.grayGoogleMapImg = cv2.cvtColor(googleMapImg, cv2.COLOR_BGR2GRAY)
         self.currentPosition = None
         self.Rbn_t0 = None
@@ -66,7 +66,9 @@ class PositionEstimator:
         self.block_size = (64, 64)  # Size of each block in cells
         self.nbins = 9  # Number of histogram bins
         
-        self.MapHogDescriptor, self.MapHog = GetHogDescriptor(self.grayGoogleMapImg, self.cell_size, self.block_size, self.nbins)
+        self.HOGLookupTable = CreateHOGLookupTable(self.grayGoogleMapImg, self.cell_size, self.block_size, self.nbins, Hx, Hy)
+        
+        # self.MapHogDescriptor, self.MapHog = GetHogDescriptor(self.grayGoogleMapImg, self.cell_size, self.block_size, self.nbins)
         # self.MapHogDescriptorFlattened = self.MapHogDescriptor.flatten()
     
     @classmethod
@@ -202,42 +204,51 @@ class PositionEstimator:
 class ParticleFilter:
     def __init__(self,
                  num_particles,
-                 searchSquareSideLength,
-                 searchInterval,
-                 Hx,
-                 Hy,
-                 googleMapHOGDescriptorFlattened,
-                 currentFrameHOGDescriptorFlattened,
-                 cellSize,
+                 HOGLookupTable,
                  mapShape,
+                 σ,
                  τd):
         self.num_particles = num_particles
-        self.Hx = Hx
-        self.Hy = Hy
-        self.googleMapHOGDescriptorFlattened = googleMapHOGDescriptorFlattened
-        self.currentFrameHOGDescriptorFlattened = currentFrameHOGDescriptorFlattened
-        self.cellSize = cellSize
+        self.HOGLookupTable = HOGLookupTable
         self.mapShape = mapShape
-        self.particles = np.empty((num_particles, 2)) # Initialize particles
-        self.particles[:, 0] = np.random.uniform(0, searchSquareSideLength, num_particles) // searchInterval * searchInterval
-        self.particles[:, 1] = np.random.uniform(0, searchSquareSideLength, num_particles) // searchInterval * searchInterval
+        self.σ = σ
         self.τd = τd
     
     @classmethod
-    def run(self):
-        # TODO: CONTINUE HERE
+    def run(self, currentFrameHOGDescriptorFlattened, searchSquareSideLength, searchInterval, xOffset, yOffset):
+        # Initialize particles [randomly]
+        particles = np.empty((self.num_particles, 2))
+        particles[:, 0] = np.random.uniform(xOffset, searchSquareSideLength + xOffset, self.num_particles) // searchInterval * searchInterval
+        particles[:, 1] = np.random.uniform(yOffset, searchSquareSideLength + yOffset, self.num_particles) // searchInterval * searchInterval
+        
+        # Get normalized distance weights
+        distances = np.array([self.__distance(p, currentFrameHOGDescriptorFlattened) for p in particles])
+        likelihoods = self.__gaussianLikelihood(distances)
+        
+        # Get minimum distance (highest likelihood)
+        # TODO: Check that this implementation is not backwards
+        minPosIndex = np.argmax(likelihoods)
+        
+        # Check minimum distance against threshold
+        if (likelihoods[minPosIndex] >= self.τd):
+            return (particles[minPosIndex, 0], particles[minPosIndex, 1])
+        
+        # If minimum distance violates threshold, return null
         return None
     
     @classmethod
-    def __distance(self, x, y):
+    def __distance(self, particle, currentFrameHOGDescriptorFlattened):
+        x_coordinate = particle[0]
+        y_coordinate = particle[1]
+        
         # Calculate Euclidean distance between reference and candidate descriptors
-        candidateRegionDescriptor = ExtractSubImageHOG(self.googleMapHOGDescriptorFlattened, self.mapShape, self.cellSize, x, y, self.Hy, self.Hx)
-        return np.linalg.norm(self.currentFrameHOGDescriptorFlattened - candidateRegionDescriptor)
+        candidateRegionDescriptor = self.HOGLookupTable[(x_coordinate, y_coordinate)]
+        return np.linalg.norm(currentFrameHOGDescriptorFlattened - candidateRegionDescriptor)
     
     @classmethod
-    def __gaussianLikelihood(self, distances, σ):
+    def __gaussianLikelihood(self, distances):
         # Calculate Gaussian likelihoods
-        likelihoods = (1/math.sqrt(2*math.pi*σ**2)) * np.exp(-0.5 * (distances**2) / (σ**2))
+        likelihoods = (1/math.sqrt(2*math.pi*self.σ**2)) * np.exp(-0.5 * (distances**2) / (self.σ**2))
         
         # Normalize the likelihoods
         total_likelihood = np.sum(likelihoods)
@@ -292,6 +303,31 @@ def ZeroPadImg(img, targetShape):
     paddedImg = cv2.copyMakeBorder(img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0)
         
     return paddedImg, pad_top, pad_bottom, pad_left, pad_right
+
+def CreateHOGLookupTable(grayScale, cellSize, blockSize, nbins, Hx, Hy):
+    
+    hogLookupTable = {}
+    height, width = grayScale.shape[:2]
+    
+    hog = cv2.HOGDescriptor(_winSize=(Hx // cellSize[1] * cellSize[1],
+                                      Hy // cellSize[0] * cellSize[0]),
+                            _blockSize=(blockSize[1] * cellSize[1],
+                                        blockSize[0] * cellSize[0]),
+                            _blockStride=(cellSize[1], cellSize[0]),
+                            _cellSize=(cellSize[1], cellSize[0]),
+                            _nbins=nbins)
+    
+    # Iterate over each pixel
+    for y in range(height - Hy + 1):
+        for x in range(width - Hx + 1):
+            # Extract sub-image
+            sub_img = grayScale[y:y+Hy, x:x+Hx]
+            
+            # Compute HOG descriptor
+            descriptor = hog.compute(sub_img)
+            hogLookupTable[(x, y)] = descriptor.flatten() # flatten for vector-based comparison
+
+    return hogLookupTable
     
 def GetHogDescriptor(grayScale, cellSize, blockSize, nbins):
     # Convert map to grayscale
@@ -313,40 +349,40 @@ def GetHogDescriptor(grayScale, cellSize, blockSize, nbins):
         
     return hogDescriptor, hog
 
-def ExtractSubImageHOG(hogDescriptorFlattened, full_image_shape, cell_size, x, y, h, w):
-    """
-    Extract the HOG descriptor of a sub-image.
+# def ExtractSubImageHOG(hogDescriptorFlattened, full_image_shape, cell_size, x, y, h, w):
+#     """
+#     Extract the HOG descriptor of a sub-image.
     
-    WARNING: does not take into account cases where sub-image does not align perfectly with cell boundaries
-             and does not consider block normalization.
+#     WARNING: does not take into account cases where sub-image does not align perfectly with cell boundaries
+#              and does not consider block normalization.
 
-    :param hog_descriptor: The HOG descriptor of the full image.
-    :param full_image_shape: The shape of the full image (height, width).
-    :param cell_size: The size of each cell (height, width).
-    :param x, y: The top-left coordinates of the sub-image.
-    :param h, w: The height and width of the sub-image.
-    :return: The HOG descriptor of the sub-image.
-    """
+#     :param hog_descriptor: The HOG descriptor of the full image.
+#     :param full_image_shape: The shape of the full image (height, width).
+#     :param cell_size: The size of each cell (height, width).
+#     :param x, y: The top-left coordinates of the sub-image.
+#     :param h, w: The height and width of the sub-image.
+#     :return: The HOG descriptor of the sub-image.
+#     """
 
-    # Calculate the number of cells in the full image
-    num_cells_x = full_image_shape[1] // cell_size[1]
+#     # Calculate the number of cells in the full image
+#     num_cells_x = full_image_shape[1] // cell_size[1]
 
-    # Calculate the range of cells covered by the sub-image
-    start_cell_x = x // cell_size[1]
-    start_cell_y = y // cell_size[0]
-    end_cell_x = (x + w) // cell_size[1]
-    end_cell_y = (y + h) // cell_size[0]
+#     # Calculate the range of cells covered by the sub-image
+#     start_cell_x = x // cell_size[1]
+#     start_cell_y = y // cell_size[0]
+#     end_cell_x = (x + w) // cell_size[1]
+#     end_cell_y = (y + h) // cell_size[0]
 
-    # Extract the relevant portion of the HOG descriptor
-    # Note: The actual extraction depends on how the hog_descriptor is structured
-    sub_hog = []
-    for i in range(start_cell_y, end_cell_y):
-        for j in range(start_cell_x, end_cell_x):
-            cell_index = i * num_cells_x + j
-            cell_features = hogDescriptorFlattened[cell_index]  # Extract cell features
-            sub_hog.append(cell_features)
+#     # Extract the relevant portion of the HOG descriptor
+#     # Note: The actual extraction depends on how the hog_descriptor is structured
+#     sub_hog = []
+#     for i in range(start_cell_y, end_cell_y):
+#         for j in range(start_cell_x, end_cell_x):
+#             cell_index = i * num_cells_x + j
+#             cell_features = hogDescriptorFlattened[cell_index]  # Extract cell features
+#             sub_hog.append(cell_features)
 
-    return np.concatenate(sub_hog)
+#     return np.concatenate(sub_hog)
     
 def GetHogImage(hogDescriptor, imgShape, cellSize, blockSize, nbins, scale=1):
     # Reshape the HOG features to match the cell layout (num_cells_x, num_cells_y, num_blocks_x, num_blocks_y, num_bins)
